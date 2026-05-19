@@ -301,6 +301,7 @@ if [ -n "$exp_path" ]; then
 
     echo "run_pwn.sh: mode=$mode exp=${exp_path#$challenge_dir/}" >&2
     (cd "$challenge_dir" && exec "${cmd[@]}")
+    exit $?
 fi
 
 [ -n "$active_bin" ] || die "no exp.py and no binary detected in $challenge_dir"
