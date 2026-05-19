@@ -1,13 +1,15 @@
-const CORE_DOCUMENTS = ["STATE.md", "FACTS.md", ".ctf-files", ".pwnrun"];
-
 const state = {
   challenges: [],
   filter: "",
   selected: null,
   detail: null,
-  activeDocument: "STATE.md",
-  drafts: {},
   runInfo: null,
+  filePreview: null,
+  activeFilePath: null,
+  filePreviewLoading: false,
+  browserPath: ".",
+  browserEntries: [],
+  browserLoading: false,
 };
 
 const elements = {
@@ -65,29 +67,51 @@ function setBusy(target, busy) {
   target.disabled = busy;
 }
 
-function currentDraft() {
-  if (!state.selected) {
-    return "";
+function previewablePaths(detail) {
+  if (!detail) {
+    return [];
   }
-  const challengeDrafts = state.drafts[state.selected] || {};
-  return challengeDrafts[state.activeDocument] ?? "";
+
+  const artifactPaths = detail.artifacts
+    .filter((artifact) => artifact.previewable)
+    .map((artifact) => artifact.path);
+  const attemptPaths = detail.attempts.filter((attempt) => attempt.previewable).map((attempt) => attempt.path);
+  return [...artifactPaths, ...attemptPaths];
 }
 
-function setCurrentDraft(content) {
-  if (!state.selected) {
-    return;
+function preferredPreviewPath(detail) {
+  const paths = previewablePaths(detail);
+  if (!paths.length) {
+    return null;
   }
-  if (!state.drafts[state.selected]) {
-    state.drafts[state.selected] = {};
+
+  if (state.activeFilePath && paths.includes(state.activeFilePath)) {
+    return state.activeFilePath;
   }
-  state.drafts[state.selected][state.activeDocument] = content;
+
+  const preferred = ["exp.py", "wp.md", "exp_template.py", "README.md"];
+  for (const name of preferred) {
+    if (paths.includes(name)) {
+      return name;
+    }
+  }
+
+  return paths[0];
 }
 
-function syncDraftsFromDetail() {
-  if (!state.selected || !state.detail) {
-    return;
+function buildBrowserBreadcrumbs(path) {
+  const crumbs = [{ label: ".", path: "." }];
+  if (!path || path === ".") {
+    return crumbs;
   }
-  state.drafts[state.selected] = { ...state.detail.documents };
+
+  const parts = path.split("/").filter(Boolean);
+  let current = "";
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    crumbs.push({ label: part, path: current });
+  }
+  return crumbs;
 }
 
 function filteredChallenges() {
@@ -114,7 +138,9 @@ function renderChallengeList() {
 
   elements.challengeList.innerHTML = items
     .map((challenge) => {
+      const solveStatusTone = challenge.solve_status === "solved" ? "ok" : "warn";
       const badges = [
+        `<span class="chip ${solveStatusTone}">${escapeHtml(challenge.solve_status)}</span>`,
         challenge.initialized ? `<span class="chip ok">initialized</span>` : `<span class="chip warn">not init</span>`,
         `<span class="chip">${challenge.checkpoint_count} cp</span>`,
         `<span class="chip">${challenge.artifact_count} files</span>`,
@@ -146,7 +172,7 @@ function renderEmptyDetail() {
       <div>
         <p class="eyebrow">Ready</p>
         <h3>Select a challenge</h3>
-        <p class="muted">The right pane will show docs, checkpoints, runtime info, and filesystem state.</p>
+        <p class="muted">The right pane will show file previews, checkpoints, runtime info, and filesystem state.</p>
       </div>
     </section>
   `;
@@ -174,7 +200,7 @@ function renderRunInfoCard() {
           <span class="chip danger">script error</span>
         </div>
         <p class="muted">run_pwn.sh info did not resolve cleanly.</p>
-        <pre class="doc-editor mono">${escapeHtml((runInfo.stderr || runInfo.stdout || "No output").trim())}</pre>
+        <pre class="file-preview">${escapeHtml((runInfo.stderr || runInfo.stdout || "No output").trim())}</pre>
       </section>
     `;
   }
@@ -201,6 +227,159 @@ function renderRunInfoCard() {
   `;
 }
 
+function renderFilePreviewCard() {
+  if (!state.detail) {
+    return "";
+  }
+
+  if (state.filePreviewLoading) {
+    return `
+      <section class="detail-card stack">
+        <div class="detail-header">
+          <h3>File Preview</h3>
+          <span class="badge">loading</span>
+        </div>
+        <p class="muted">Loading file content...</p>
+      </section>
+    `;
+  }
+
+  if (!state.filePreview) {
+    return `
+      <section class="detail-card stack">
+        <div class="detail-header">
+          <h3>File Preview</h3>
+          <span class="chip">idle</span>
+        </div>
+        <p class="muted">Select a file like <span class="mono">exp.py</span> or <span class="mono">wp.md</span> to preview it here.</p>
+      </section>
+    `;
+  }
+
+  if (state.filePreview.type === "directory") {
+    const entries = state.filePreview.entries.length
+      ? state.filePreview.entries
+          .map((entry) => `<div class="entry-copy mono">${escapeHtml(entry.type)}  ${escapeHtml(entry.name)}</div>`)
+          .join("")
+      : `<p class="muted">Directory is empty.</p>`;
+
+    return `
+      <section class="detail-card stack">
+        <div class="detail-header">
+          <div>
+            <h3>File Preview</h3>
+            <p class="muted mono">${escapeHtml(state.filePreview.path)}</p>
+          </div>
+          <span class="chip">directory</span>
+        </div>
+        <div class="preview-meta">
+          <span class="chip">${escapeHtml(state.filePreview.modified_at)}</span>
+        </div>
+        <div class="stack">${entries}</div>
+      </section>
+    `;
+  }
+
+  const kindChip = state.filePreview.preview_kind === "binary" ? "binary" : "text";
+  const truncateChip = state.filePreview.truncated
+    ? `<span class="chip warn">preview capped at ${escapeHtml(String(state.filePreview.preview_limit))} B</span>`
+    : "";
+
+  return `
+    <section class="detail-card stack">
+      <div class="detail-header">
+        <div>
+          <h3>File Preview</h3>
+          <p class="muted mono">${escapeHtml(state.filePreview.path)}</p>
+        </div>
+        <div class="split-actions">
+          <span class="chip">${escapeHtml(kindChip)}</span>
+          <span class="chip">${escapeHtml(String(state.filePreview.size))} B</span>
+          ${truncateChip}
+        </div>
+      </div>
+      <div class="preview-meta">
+        <span class="chip">${escapeHtml(state.filePreview.modified_at)}</span>
+      </div>
+      <pre class="file-preview">${escapeHtml(state.filePreview.content)}</pre>
+    </section>
+  `;
+}
+
+function renderFilesBrowserCard() {
+  if (!state.detail) {
+    return "";
+  }
+
+  if (state.browserLoading) {
+    return `
+      <section class="detail-card stack">
+        <div class="detail-header">
+          <h3>Files</h3>
+          <span class="badge">loading</span>
+        </div>
+        <p class="muted">Loading directory entries...</p>
+      </section>
+    `;
+  }
+
+  const crumbs = buildBrowserBreadcrumbs(state.browserPath)
+    .map(
+      (crumb) => `
+        <button class="browser-crumb ${crumb.path === state.browserPath ? "active" : ""}" data-browser-path="${escapeHtml(crumb.path)}" type="button">
+          ${escapeHtml(crumb.label)}
+        </button>
+      `
+    )
+    .join("");
+
+  const upButton =
+    state.browserPath && state.browserPath !== "."
+      ? `<button class="button ghost browser-up" data-browser-path="${escapeHtml(state.browserPath)}" type="button">Up</button>`
+      : "";
+
+  const browserMarkup = state.browserEntries.length
+    ? state.browserEntries
+        .map((entry) => {
+          const rowClass = entry.path === state.activeFilePath ? "browser-item active" : "browser-item";
+          const entryAction =
+            entry.type === "directory"
+              ? "browser-dir"
+              : "browser-file";
+          const entryTone = entry.type === "directory" ? "directory" : "file";
+
+          return `
+            <div class="${rowClass}">
+              <div>
+                <button class="entry-title file-link ${entryAction}" data-path="${escapeHtml(entry.path)}" type="button">${escapeHtml(entry.name)}</button>
+                <div class="entry-copy">${escapeHtml(entry.modified_at)}</div>
+              </div>
+              <div class="split-actions">
+                <span class="chip">${escapeHtml(entryTone)}</span>
+                ${entry.is_executable ? `<span class="chip ok">exec</span>` : ""}
+                <span class="chip">${escapeHtml(String(entry.size))} B</span>
+              </div>
+            </div>
+          `;
+        })
+        .join("")
+    : `<p class="muted">Directory is empty.</p>`;
+
+  return `
+    <section class="detail-card stack">
+      <div class="detail-header">
+        <h3>Files</h3>
+        <div class="split-actions">
+          <span class="chip mono">${escapeHtml(state.browserPath)}</span>
+          ${upButton}
+        </div>
+      </div>
+      <div class="browser-breadcrumbs">${crumbs}</div>
+      <div class="artifact-list">${browserMarkup}</div>
+    </section>
+  `;
+}
+
 function renderDetail() {
   if (!state.detail || !state.selected) {
     renderEmptyDetail();
@@ -208,13 +387,8 @@ function renderDetail() {
   }
 
   const { summary, checkpoints, attempts, artifacts } = state.detail;
-  const docTabs = CORE_DOCUMENTS.map(
-    (name) => `
-      <button class="tab ${name === state.activeDocument ? "active" : ""}" data-doc="${escapeHtml(name)}" type="button">
-        ${escapeHtml(name)}
-      </button>
-    `
-  ).join("");
+  const previewableCount = previewablePaths(state.detail).length;
+  const solveStatusTone = summary.solve_status === "solved" ? "ok" : "warn";
 
   const checkpointMarkup = checkpoints.length
     ? checkpoints
@@ -236,42 +410,6 @@ function renderDetail() {
         .join("")
     : `<p class="muted">No checkpoints yet.</p>`;
 
-  const artifactMarkup = artifacts.length
-    ? artifacts
-        .map(
-          (artifact) => `
-            <div class="artifact-item">
-              <div>
-                <div class="entry-title">${escapeHtml(artifact.name)}</div>
-                <div class="entry-copy">${escapeHtml(artifact.modified_at)}</div>
-              </div>
-              <div class="split-actions">
-                <span class="chip">${escapeHtml(artifact.type)}</span>
-                ${artifact.is_executable ? `<span class="chip ok">exec</span>` : ""}
-                <span class="chip">${escapeHtml(String(artifact.size))} B</span>
-              </div>
-            </div>
-          `
-        )
-        .join("")
-    : `<p class="muted">No top-level files.</p>`;
-
-  const attemptMarkup = attempts.length
-    ? attempts
-        .map(
-          (attempt) => `
-            <div class="attempt-item">
-              <div>
-                <div class="entry-title">${escapeHtml(attempt.name)}</div>
-                <div class="entry-copy">${escapeHtml(attempt.modified_at)}</div>
-              </div>
-              <span class="chip">${escapeHtml(String(attempt.size))} B</span>
-            </div>
-          `
-        )
-        .join("")
-    : `<p class="muted">No attempt notes.</p>`;
-
   elements.detail.innerHTML = `
     <section class="detail-card">
       <div class="detail-header">
@@ -279,6 +417,9 @@ function renderDetail() {
           <p class="eyebrow">Challenge</p>
           <h3>${escapeHtml(summary.name)}</h3>
           <p class="muted">${escapeHtml(summary.path)}</p>
+        </div>
+        <div class="split-actions">
+          <span class="chip ${solveStatusTone}">${escapeHtml(summary.solve_status)}</span>
         </div>
         <div class="detail-actions split-actions">
           <button id="init-challenge" class="button secondary" type="button">Init Files</button>
@@ -289,23 +430,16 @@ function renderDetail() {
         <div class="stat"><span class="meta">Checkpoints</span><strong>${summary.checkpoint_count}</strong></div>
         <div class="stat"><span class="meta">Attempts</span><strong>${summary.attempt_count}</strong></div>
         <div class="stat"><span class="meta">Artifacts</span><strong>${summary.artifact_count}</strong></div>
-        <div class="stat"><span class="meta">Core Files</span><strong>${Object.values(summary.core_files).filter(Boolean).length}/${CORE_DOCUMENTS.length}</strong></div>
+        <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>
       </div>
     </section>
 
     <div class="detail-grid">
-      <section class="detail-card stack">
-        <div class="doc-header">
-          <div>
-            <h3>Core Documents</h3>
-            <p class="muted">Edit state, facts, manifest, and run config in place.</p>
-          </div>
-          <button id="save-document" class="button primary" type="button">Save ${escapeHtml(state.activeDocument)}</button>
-        </div>
-        <div class="tabs">${docTabs}</div>
-        <textarea id="doc-editor" class="doc-editor" spellcheck="false">${escapeHtml(currentDraft())}</textarea>
-      </section>
+      ${renderFilePreviewCard()}
+      ${renderFilesBrowserCard()}
+    </div>
 
+    <div class="detail-grid">
       <div class="stack">
         ${renderRunInfoCard()}
 
@@ -324,45 +458,41 @@ function renderDetail() {
           <div class="checkpoints">${checkpointMarkup}</div>
         </section>
       </div>
-    </div>
-
-    <div class="detail-grid">
       <section class="detail-card stack">
         <div class="detail-header">
-          <h3>Top-Level Files</h3>
-          <span class="chip">${artifacts.length} entries</span>
+          <h3>Workspace</h3>
+          <span class="chip">${summary.artifact_count} root entries</span>
         </div>
-        <div class="artifact-list">${artifactMarkup}</div>
-      </section>
-
-      <section class="detail-card stack">
-        <div class="detail-header">
-          <h3>Attempt Notes</h3>
-          <span class="chip">${attempts.length} entries</span>
+        <div class="stats-grid">
+          <div class="stat"><span class="meta">Attempts Dir</span><strong>${summary.attempt_count}</strong></div>
+          <div class="stat"><span class="meta">Root Entries</span><strong>${summary.artifact_count}</strong></div>
+          <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>
         </div>
-        <div class="attempt-list">${attemptMarkup}</div>
+        <p class="muted">Use the file browser above to inspect nested directories such as <span class="mono">attempts/</span> and <span class="mono">checkpoints/</span>.</p>
       </section>
     </div>
   `;
-
-  elements.detail.querySelectorAll("[data-doc]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.activeDocument = button.dataset.doc;
-      renderDetail();
-    });
-  });
-
-  const editor = document.querySelector("#doc-editor");
-  editor?.addEventListener("input", (event) => {
-    setCurrentDraft(event.target.value);
-  });
-
-  document.querySelector("#save-document")?.addEventListener("click", saveActiveDocument);
   document.querySelector("#init-challenge")?.addEventListener("click", initializeSelectedChallenge);
   document.querySelector("#refresh-detail")?.addEventListener("click", () => loadChallengeDetail(state.selected));
   document.querySelector("#checkpoint-form")?.addEventListener("submit", createCheckpoint);
   document.querySelectorAll(".checkpoint-restore").forEach((button) => {
     button.addEventListener("click", () => restoreCheckpoint(button.dataset.checkpoint));
+  });
+  document.querySelectorAll(".browser-file").forEach((button) => {
+    button.addEventListener("click", () => loadFilePreview(button.dataset.path));
+  });
+  document.querySelectorAll(".browser-dir").forEach((button) => {
+    button.addEventListener("click", () => loadBrowser(button.dataset.path));
+  });
+  document.querySelectorAll(".browser-crumb").forEach((button) => {
+    button.addEventListener("click", () => loadBrowser(button.dataset.browserPath));
+  });
+  document.querySelector(".browser-up")?.addEventListener("click", () => {
+    const current = state.browserPath;
+    const parts = current.split("/").filter(Boolean);
+    parts.pop();
+    const nextPath = parts.length ? parts.join("/") : ".";
+    loadBrowser(nextPath);
   });
 }
 
@@ -393,13 +523,29 @@ async function loadChallengeDetail(name) {
   }
   state.selected = name;
   state.runInfo = null;
+  state.filePreview = null;
+  state.activeFilePath = null;
+  state.filePreviewLoading = false;
+  state.browserPath = ".";
+  state.browserEntries = [];
+  state.browserLoading = false;
   renderChallengeList();
   renderDetail();
 
   const payload = await request(`/api/challenges/${encodeURIComponent(name)}`);
   state.detail = payload.challenge;
-  syncDraftsFromDetail();
   renderDetail();
+
+  loadBrowser(".").catch((error) => {
+    console.error(error);
+  });
+
+  const previewPath = preferredPreviewPath(state.detail);
+  if (previewPath) {
+    loadFilePreview(previewPath).catch((error) => {
+      console.error(error);
+    });
+  }
 
   loadRunInfo(name).catch((error) => {
     console.error(error);
@@ -413,6 +559,59 @@ async function loadRunInfo(name) {
   }
   state.runInfo = payload.run_info;
   renderDetail();
+}
+
+async function loadFilePreview(path) {
+  if (!state.selected || !path) {
+    return;
+  }
+
+  state.activeFilePath = path;
+  state.filePreviewLoading = true;
+  renderDetail();
+
+  try {
+    const payload = await request(
+      `/api/challenges/${encodeURIComponent(state.selected)}/file?path=${encodeURIComponent(path)}`
+    );
+    if (path !== state.activeFilePath) {
+      return;
+    }
+    state.filePreview = payload.file;
+  } catch (error) {
+    showToast(error.message, "error");
+    state.filePreview = null;
+  } finally {
+    state.filePreviewLoading = false;
+    renderDetail();
+  }
+}
+
+async function loadBrowser(path = ".") {
+  if (!state.selected) {
+    return;
+  }
+
+  state.browserPath = path || ".";
+  state.browserLoading = true;
+  renderDetail();
+
+  try {
+    const payload = await request(
+      `/api/challenges/${encodeURIComponent(state.selected)}/file?path=${encodeURIComponent(state.browserPath)}`
+    );
+    if (payload.file.type !== "directory") {
+      throw new Error("Browser path is not a directory.");
+    }
+    state.browserEntries = payload.file.entries;
+    state.browserPath = payload.file.path || ".";
+  } catch (error) {
+    showToast(error.message, "error");
+    state.browserEntries = [];
+  } finally {
+    state.browserLoading = false;
+    renderDetail();
+  }
 }
 
 async function selectChallenge(name) {
@@ -464,38 +663,10 @@ async function initializeSelectedChallenge() {
       body: JSON.stringify({}),
     });
     state.detail = payload.challenge;
-    syncDraftsFromDetail();
     showToast(`Initialized ${state.selected}`, "success");
     await loadChallenges();
     renderDetail();
     await loadRunInfo(state.selected);
-  } catch (error) {
-    showToast(error.message, "error");
-  } finally {
-    setBusy(button, false);
-  }
-}
-
-async function saveActiveDocument() {
-  if (!state.selected) {
-    return;
-  }
-
-  const button = document.querySelector("#save-document");
-  setBusy(button, true);
-  try {
-    const payload = await request(
-      `/api/challenges/${encodeURIComponent(state.selected)}/document?name=${encodeURIComponent(state.activeDocument)}`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ content: currentDraft() }),
-      }
-    );
-    state.detail = payload.challenge;
-    syncDraftsFromDetail();
-    showToast(`Saved ${state.activeDocument}`, "success");
-    await loadChallenges();
-    renderDetail();
   } catch (error) {
     showToast(error.message, "error");
   } finally {
@@ -550,7 +721,6 @@ async function restoreCheckpoint(checkpoint) {
       body: JSON.stringify({ checkpoint }),
     });
     state.detail = payload.challenge;
-    syncDraftsFromDetail();
     showToast(`Restored ${checkpoint}`, "success");
     await loadChallenges();
     renderDetail();

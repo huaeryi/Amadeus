@@ -21,6 +21,8 @@ CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
 CORE_DOCUMENTS = ("STATE.md", "FACTS.md", ".ctf-files", ".pwnrun")
 CHALLENGE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+TEXT_PREVIEW_LIMIT = 256 * 1024
+BINARY_PREVIEW_LIMIT = 4096
 
 
 @dataclass
@@ -50,6 +52,34 @@ def read_text_if_exists(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def read_state_stage(path: Path) -> str:
+    state_path = path / "STATE.md"
+    if not state_path.exists():
+        return "unknown"
+
+    seen_stage = False
+    for line in state_path.read_text(encoding="utf-8").splitlines():
+        if line.strip().lower() == "# current stage":
+            seen_stage = True
+            continue
+        if not seen_stage:
+            continue
+
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return stripped
+
+    return "unknown"
+
+
+def derive_solve_status(stage: str) -> str:
+    normalized = stage.strip().lower()
+    if normalized in {"solved", "completed"}:
+        return "solved"
+    return "unsolved"
 
 
 def parse_meta_file(path: Path) -> dict[str, str]:
@@ -84,20 +114,133 @@ def run_script(script_name: str, *args: str) -> dict[str, Any]:
     return payload
 
 
-def collect_artifacts(path: Path) -> list[dict[str, Any]]:
-    artifacts: list[dict[str, Any]] = []
-    for entry in sorted(path.iterdir(), key=lambda item: item.name.lower()):
-        if entry.name in {"checkpoints", "attempts"}:
-            continue
+def resolve_path_in_challenge(challenge_name: str, relative_path: str) -> tuple[Path, Path]:
+    challenge_dir = challenge_path(challenge_name)
+    if not challenge_dir.exists():
+        raise ApiError(404, f"Challenge not found: {challenge_name}")
+    if not relative_path or relative_path == ".":
+        return challenge_dir, challenge_dir
 
+    requested_path = Path(relative_path)
+    if requested_path.is_absolute():
+        raise ApiError(400, "Absolute paths are not allowed.")
+
+    resolved_path = (challenge_dir / requested_path).resolve()
+    try:
+        resolved_path.relative_to(challenge_dir.resolve())
+    except ValueError as exc:
+        raise ApiError(400, "File path escapes the challenge directory.") from exc
+
+    return challenge_dir, resolved_path
+
+
+def hexdump_preview(data: bytes) -> str:
+    lines: list[str] = []
+    for offset in range(0, len(data), 16):
+        chunk = data[offset : offset + 16]
+        hex_part = " ".join(f"{byte:02x}" for byte in chunk)
+        ascii_part = "".join(chr(byte) if 32 <= byte <= 126 else "." for byte in chunk)
+        lines.append(f"{offset:08x}  {hex_part:<47}  {ascii_part}")
+    return "\n".join(lines)
+
+
+def build_directory_entries(challenge_dir: Path, resolved_dir: Path) -> list[dict[str, Any]]:
+    relative_dir = str(resolved_dir.relative_to(challenge_dir))
+    entries: list[dict[str, Any]] = []
+
+    for entry in sorted(
+        resolved_dir.iterdir(),
+        key=lambda item: (not item.is_dir(), item.name.lower()),
+    ):
         stat = entry.stat()
-        artifacts.append(
+        entry_relative = str(entry.relative_to(challenge_dir))
+        entries.append(
             {
                 "name": entry.name,
+                "path": entry_relative,
                 "type": "directory" if entry.is_dir() else "file",
                 "size": stat.st_size,
                 "modified_at": isoformat_from_timestamp(stat.st_mtime),
                 "is_executable": entry.is_file() and os.access(entry, os.X_OK),
+                "previewable": entry.is_file(),
+            }
+        )
+
+    return entries
+
+
+def preview_file(challenge_name: str, relative_path: str) -> dict[str, Any]:
+    challenge_dir, resolved_path = resolve_path_in_challenge(challenge_name, relative_path)
+    if not resolved_path.exists():
+        raise ApiError(404, f"File not found: {relative_path}")
+
+    relative_name = str(resolved_path.relative_to(challenge_dir))
+    stat = resolved_path.stat()
+
+    if resolved_path.is_dir():
+        parent_path: str | None = None
+        if resolved_path != challenge_dir:
+            parent_path = str(resolved_path.parent.relative_to(challenge_dir))
+        return {
+            "path": relative_name or ".",
+            "name": resolved_path.name,
+            "type": "directory",
+            "size": stat.st_size,
+            "modified_at": isoformat_from_timestamp(stat.st_mtime),
+            "is_root": resolved_path == challenge_dir,
+            "parent_path": parent_path or ".",
+            "entries": build_directory_entries(challenge_dir, resolved_path),
+        }
+
+    with resolved_path.open("rb") as file_handle:
+        raw = file_handle.read(TEXT_PREVIEW_LIMIT + 1)
+
+    is_binary = b"\x00" in raw
+    if not is_binary:
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            is_binary = True
+
+    if is_binary:
+        preview_bytes = raw[:BINARY_PREVIEW_LIMIT]
+        content = hexdump_preview(preview_bytes)
+        truncated = stat.st_size > BINARY_PREVIEW_LIMIT
+        preview_kind = "binary"
+        limit = BINARY_PREVIEW_LIMIT
+    else:
+        preview_bytes = raw[:TEXT_PREVIEW_LIMIT]
+        content = preview_bytes.decode("utf-8", errors="replace")
+        truncated = stat.st_size > TEXT_PREVIEW_LIMIT
+        preview_kind = "text"
+        limit = TEXT_PREVIEW_LIMIT
+
+    return {
+        "path": relative_name,
+        "name": resolved_path.name,
+        "type": "file",
+        "preview_kind": preview_kind,
+        "size": stat.st_size,
+        "modified_at": isoformat_from_timestamp(stat.st_mtime),
+        "truncated": truncated,
+        "preview_limit": limit,
+        "content": content,
+    }
+
+
+def collect_artifacts(path: Path) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for entry in sorted(path.iterdir(), key=lambda item: item.name.lower()):
+        stat = entry.stat()
+        artifacts.append(
+            {
+                "name": entry.name,
+                "path": entry.name,
+                "type": "directory" if entry.is_dir() else "file",
+                "size": stat.st_size,
+                "modified_at": isoformat_from_timestamp(stat.st_mtime),
+                "is_executable": entry.is_file() and os.access(entry, os.X_OK),
+                "previewable": entry.is_file(),
             }
         )
     return artifacts
@@ -116,8 +259,10 @@ def collect_attempts(path: Path) -> list[dict[str, Any]]:
         attempts.append(
             {
                 "name": entry.name,
+                "path": f"attempts/{entry.name}",
                 "size": stat.st_size,
                 "modified_at": isoformat_from_timestamp(stat.st_mtime),
+                "previewable": True,
             }
         )
     return attempts
@@ -179,6 +324,8 @@ def challenge_summary(path: Path) -> dict[str, Any]:
     artifacts = collect_artifacts(path)
     checkpoints = collect_checkpoints(path)
     attempts = collect_attempts(path)
+    state_stage = read_state_stage(path)
+    solve_status = derive_solve_status(state_stage)
     core_files = {name: (path / name).exists() for name in CORE_DOCUMENTS}
     updated_at = isoformat_from_timestamp(path.stat().st_mtime)
     for artifact in artifacts:
@@ -188,6 +335,8 @@ def challenge_summary(path: Path) -> dict[str, Any]:
         "name": path.name,
         "path": str(path.relative_to(ROOT_DIR)),
         "initialized": (path / "STATE.md").exists() and (path / "FACTS.md").exists(),
+        "state_stage": state_stage,
+        "solve_status": solve_status,
         "core_files": core_files,
         "checkpoint_count": len(checkpoints),
         "attempt_count": len(attempts),
@@ -312,6 +461,11 @@ class AmadeusHandler(SimpleHTTPRequestHandler):
                     if not path.exists():
                         raise ApiError(404, f"Challenge not found: {name}")
                     self.send_json(200, {"run_info": parse_run_info(path)})
+                    return
+
+                if len(parts) == 4 and parts[3] == "file" and method == "GET":
+                    requested_path = query.get("path", [""])[0]
+                    self.send_json(200, {"file": preview_file(name, requested_path)})
                     return
 
                 if len(parts) == 4 and parts[3] == "document":

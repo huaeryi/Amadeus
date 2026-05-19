@@ -154,8 +154,7 @@ textarea {
 .detail-actions,
 .checkpoint-item,
 .artifact-item,
-.attempt-item,
-.doc-header {
+.attempt-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -171,8 +170,7 @@ textarea {
 }
 
 .field input,
-.field textarea,
-.doc-editor {
+.field textarea {
   width: 100%;
   border: 1px solid rgba(19, 33, 47, 0.16);
   border-radius: var(--radius-sm);
@@ -184,8 +182,7 @@ textarea {
 }
 
 .field input:focus,
-.field textarea:focus,
-.doc-editor:focus {
+.field textarea:focus {
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.95);
   transform: translateY(-1px);
@@ -396,50 +393,68 @@ textarea {
   font-size: 1.25rem;
 }
 
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.tab {
-  border: 1px solid rgba(19, 33, 47, 0.12);
-  border-radius: 999px;
-  padding: 9px 12px;
-  background: rgba(255, 255, 255, 0.42);
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-
-.tab.active {
-  border-color: rgba(14, 143, 125, 0.38);
-  background: rgba(14, 143, 125, 0.12);
-  color: var(--accent-strong);
-}
-
-.doc-editor {
-  min-height: 420px;
-  resize: vertical;
-  font-family: var(--font-mono);
-  font-size: 0.92rem;
-  line-height: 1.55;
-}
-
 .checkpoint-item,
 .artifact-item,
-.attempt-item {
+.attempt-item,
+.browser-item {
   padding: 12px 0;
   border-bottom: 1px solid rgba(19, 33, 47, 0.08);
 }
 
+.artifact-item.active,
+.attempt-item.active,
+.browser-item.active {
+  margin: 0 -10px;
+  padding: 12px 10px;
+  border-radius: 14px;
+  background: rgba(14, 143, 125, 0.08);
+}
+
 .checkpoint-item:last-child,
 .artifact-item:last-child,
-.attempt-item:last-child {
+.attempt-item:last-child,
+.browser-item:last-child {
   border-bottom: 0;
 }
 
 .entry-title {
   font-weight: 700;
+}
+
+.file-link {
+  display: inline-block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.file-link:hover {
+  text-decoration: underline;
+}
+
+.browser-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.browser-crumb {
+  border: 1px solid rgba(19, 33, 47, 0.12);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.browser-crumb.active {
+  border-color: rgba(14, 143, 125, 0.38);
+  background: rgba(14, 143, 125, 0.12);
+  color: var(--accent-strong);
 }
 
 .entry-copy {
@@ -449,6 +464,28 @@ textarea {
 
 .runtime-grid {
   gap: 10px;
+}
+
+.preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.file-preview {
+  margin: 0;
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid rgba(19, 33, 47, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .runtime-field {
