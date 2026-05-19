@@ -1,0 +1,9 @@
+# One file path per line, relative to the challenge directory.
+# Lines starting with # are ignored.
+
+exp.py
+exp_template.py
+wp.md
+STATE.md
+FACTS.md
+.pwnrun

@@ -1,0 +1,21 @@
+# Optional per-challenge run config for run_pwn.sh
+# Paths may be absolute or relative to the challenge directory.
+
+EXP=exp.py
+EXP_PYTHON=python3
+
+# Leave blank to auto-detect.
+BIN=
+PATCHED_BIN=
+LIBC=
+LD=
+
+# Standard pwntools-style defaults:
+# local  -> python3 exp.py
+# remote -> python3 exp.py r <host> <port>
+LOCAL_ARGS=
+REMOTE_ARGS=r
+REMOTE_APPEND_HOSTPORT=1
+
+HOST=
+PORT=
