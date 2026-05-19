@@ -13,14 +13,14 @@ Minimal file-based solve-state helpers for Codex-driven CTF work.
 ## Usage
 
 ```bash
-Amadeus/bin/init_challenge.sh Amadeus/challenges/baby_tcache
-Amadeus/bin/checkpoint.sh env-ok Amadeus/challenges/baby_tcache
-Amadeus/bin/checkpoint.sh leak-confirmed Amadeus/challenges/baby_tcache
-Amadeus/bin/restore.sh latest Amadeus/challenges/baby_tcache
-Amadeus/bin/restore.sh 20260519-120000-leak-confirmed Amadeus/challenges/baby_tcache
-Amadeus/bin/run_pwn.sh Amadeus/challenges/baby_tcache
-Amadeus/bin/run_pwn.sh Amadeus/challenges/baby_tcache remote 127.0.0.1 5000
-Amadeus/bin/run_pwn.sh Amadeus/challenges/baby_tcache patched
+bin/init_challenge.sh challenges/baby_tcache
+bin/checkpoint.sh env-ok challenges/baby_tcache
+bin/checkpoint.sh leak-confirmed challenges/baby_tcache
+bin/restore.sh latest challenges/baby_tcache
+bin/restore.sh 20260519-120000-leak-confirmed challenges/baby_tcache
+bin/run_pwn.sh challenges/baby_tcache
+bin/run_pwn.sh challenges/baby_tcache remote 127.0.0.1 5000
+bin/run_pwn.sh challenges/baby_tcache patched
 ```
 
 Add extra tracked files by editing `.ctf-files` inside the challenge directory.
@@ -72,6 +72,6 @@ This workflow is designed to sit next to the `ctf-pwn` skill, not replace it.
 
 The intended pairing is:
 
-1. Let Codex read `Amadeus/challenges/AGENTS.md`.
+1. Let Codex read `challenges/AGENTS.md`.
 2. Let the pwn skill drive the exploit reasoning.
 3. Use `STATE.md`, `FACTS.md`, `checkpoints/`, and `attempts/` to keep the local solve process recoverable.

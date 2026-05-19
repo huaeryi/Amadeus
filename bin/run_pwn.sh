@@ -6,11 +6,11 @@ usage() {
 usage: run_pwn.sh <challenge_dir> [local|remote|patched|info] [host] [port] [-- extra exp args]
 
 examples:
-  run_pwn.sh Amadeus/challenges/fsb
-  run_pwn.sh Amadeus/challenges/fsb local
-  run_pwn.sh Amadeus/challenges/fsb remote 127.0.0.1 5000
-  run_pwn.sh Amadeus/challenges/fsb patched
-  run_pwn.sh Amadeus/challenges/fsb info
+  run_pwn.sh challenges/fsb
+  run_pwn.sh challenges/fsb local
+  run_pwn.sh challenges/fsb remote 127.0.0.1 5000
+  run_pwn.sh challenges/fsb patched
+  run_pwn.sh challenges/fsb info
 
 behavior:
   - reads optional .pwnrun from the challenge directory
