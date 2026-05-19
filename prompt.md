@@ -1,4 +1,4 @@
-# AAAgent Prompt Template
+# Amadeus Prompt Template
 
 ## Generic Pwn Template
 
@@ -6,16 +6,16 @@
 开始解决 `{{challenge_dir}}` 这道 pwn 题。
 
 先读：
-- `agent/AAAgent/challenges/AGENTS.md`
-- `agent/AAAgent/AGENTS.md`
+- `Amadeus/challenges/AGENTS.md`
+- `Amadeus/AGENTS.md`
 
 工作要求：
-1. 先运行 `agent/AAAgent/bin/init_challenge.sh {{challenge_dir}}`
-2. 按 `agent/AAAgent/challenges/AGENTS.md` 的流程工作
+1. 先运行 `Amadeus/bin/init_challenge.sh {{challenge_dir}}`
+2. 按 `Amadeus/challenges/AGENTS.md` 的流程工作
 3. 先读取题目目录中的附件，并确认主程序、patched binary、libc、ld、`exp_template.py`
 4. 把已确认事实写进 `FACTS.md`
 5. 把当前阶段、下一步、失败路线和开放问题写进 `STATE.md`
-6. 优先使用 `agent/AAAgent/bin/run_pwn.sh {{challenge_dir}} [local|remote|patched]` 统一执行本地、远程和 patched 运行
+6. 优先使用 `Amadeus/bin/run_pwn.sh {{challenge_dir}} [local|remote|patched]` 统一执行本地、远程和 patched 运行
 7. 到关键里程碑时运行 checkpoint；名称不用固定死，应根据题目实际进展命名，例如 `env-ok`、`primitive-confirmed`、`fmt-offset-confirmed`、`heap-base-confirmed`、`leak-confirmed`
 8. 如果使用 `run_pwn.sh`，保持 `.pwnrun` 与当前题目状态一致
 9. libc 策略：优先使用题目提供的 libc 和 ld；本地尽量用 patchelf、提供的 loader 或 patched 模式复现；如果题目没有给 libc，则先做泄露，再根据泄露结果去 `libc.rip` 之类的库匹配
@@ -45,14 +45,14 @@
 ## Example
 
 ```text
-开始解决 `agent/AAAgent/challenges/{{challenge_name}}` 这道 pwn 题。
+开始解决 `Amadeus/challenges/{{challenge_name}}` 这道 pwn 题。
 
 先读：
-- `agent/AAAgent/challenges/AGENTS.md`
-- `agent/AAAgent/AGENTS.md`
+- `Amadeus/challenges/AGENTS.md`
+- `Amadeus/AGENTS.md`
 
 然后运行：
-`agent/AAAgent/bin/init_challenge.sh agent/AAAgent/challenges/{{challenge_name}}`
+`Amadeus/bin/init_challenge.sh Amadeus/challenges/{{challenge_name}}`
 
 再按其中流程完成本地分析、checkpoint、回退和最终 `exp.py` / `wp.md` 产出。
 ```

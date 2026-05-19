@@ -1,4 +1,4 @@
-# AAAgent
+# Amadeus
 
 Minimal file-based solve-state helpers for Codex-driven CTF work.
 
@@ -13,14 +13,14 @@ Minimal file-based solve-state helpers for Codex-driven CTF work.
 ## Usage
 
 ```bash
-agent/AAAgent/bin/init_challenge.sh agent/AAAgent/challenges/baby_tcache
-agent/AAAgent/bin/checkpoint.sh env-ok agent/AAAgent/challenges/baby_tcache
-agent/AAAgent/bin/checkpoint.sh leak-confirmed agent/AAAgent/challenges/baby_tcache
-agent/AAAgent/bin/restore.sh latest agent/AAAgent/challenges/baby_tcache
-agent/AAAgent/bin/restore.sh 20260519-120000-leak-confirmed agent/AAAgent/challenges/baby_tcache
-agent/AAAgent/bin/run_pwn.sh agent/AAAgent/challenges/baby_tcache
-agent/AAAgent/bin/run_pwn.sh agent/AAAgent/challenges/baby_tcache remote 127.0.0.1 5000
-agent/AAAgent/bin/run_pwn.sh agent/AAAgent/challenges/baby_tcache patched
+Amadeus/bin/init_challenge.sh Amadeus/challenges/baby_tcache
+Amadeus/bin/checkpoint.sh env-ok Amadeus/challenges/baby_tcache
+Amadeus/bin/checkpoint.sh leak-confirmed Amadeus/challenges/baby_tcache
+Amadeus/bin/restore.sh latest Amadeus/challenges/baby_tcache
+Amadeus/bin/restore.sh 20260519-120000-leak-confirmed Amadeus/challenges/baby_tcache
+Amadeus/bin/run_pwn.sh Amadeus/challenges/baby_tcache
+Amadeus/bin/run_pwn.sh Amadeus/challenges/baby_tcache remote 127.0.0.1 5000
+Amadeus/bin/run_pwn.sh Amadeus/challenges/baby_tcache patched
 ```
 
 Add extra tracked files by editing `.ctf-files` inside the challenge directory.
@@ -68,10 +68,10 @@ Avoid silently using the host libc unless that choice is explicitly verified.
 This workflow is designed to sit next to the `ctf-pwn` skill, not replace it.
 
 - `ctf-pwn` provides exploitation patterns and technique guidance.
-- `AAAgent` provides local state files, rollback points, and a consistent output structure.
+- `Amadeus` provides local state files, rollback points, and a consistent output structure.
 
 The intended pairing is:
 
-1. Let Codex read `agent/AAAgent/challenges/AGENTS.md`.
+1. Let Codex read `Amadeus/challenges/AGENTS.md`.
 2. Let the pwn skill drive the exploit reasoning.
 3. Use `STATE.md`, `FACTS.md`, `checkpoints/`, and `attempts/` to keep the local solve process recoverable.

@@ -1,16 +1,16 @@
 # Pwn Challenge Workflow
 
-This directory contains pwn challenge folders such as `agent/AAAgent/challenges/<name>`.
+This directory contains pwn challenge folders such as `Amadeus/challenges/<name>`.
 
 For any challenge in this directory:
 
 1. Work inside that challenge directory.
-2. Start by running `agent/AAAgent/bin/init_challenge.sh <challenge_dir>` if `STATE.md` and `FACTS.md` do not exist yet.
+2. Start by running `Amadeus/bin/init_challenge.sh <challenge_dir>` if `STATE.md` and `FACTS.md` do not exist yet.
 3. Read the challenge files first and identify the main binary, patched binary, libc, ld, and `exp_template.py` if present.
 4. Treat `FACTS.md` as confirmed facts only.
 5. Use `STATE.md` for the current stage, next step, rejected branches, and open questions.
 6. Build `exp.py` from `exp_template.py` when the template exists.
-7. Prefer using `agent/AAAgent/bin/run_pwn.sh <challenge_dir> [local|remote|patched]` as the standard execution entrypoint.
+7. Prefer using `Amadeus/bin/run_pwn.sh <challenge_dir> [local|remote|patched]` as the standard execution entrypoint.
 8. If `run_pwn.sh` is used, keep `.pwnrun` accurate for `BIN`, `PATCHED_BIN`, `LIBC`, `LD`, `HOST`, and `PORT`.
 9. When writing or updating `exp.py`, prefer reading the `PWN_*` environment variables exported by `run_pwn.sh` so that local, remote, and patched runs share one interface.
 10. Libc strategy:
