@@ -11,8 +11,9 @@ This repository is used to evaluate challenge-solving behavior under local-only 
 
 ## Allowed Sources
 
-- Use the files that already exist in the repository or in the current challenge directory, including binaries, patched binaries, libc, ld, `exp_template.py`, `exp.py`, `wp.md`, `STATE.md`, `FACTS.md`, `attempts/`, and `checkpoints/`.
-- Local historical materials already present in the workspace count as challenge-provided context, not cheating.
+- Use the files that already exist in the current challenge directory, including binaries, patched binaries, libc, ld, `exp_template.py`, `exp.py`, `wp.md`, `STATE.md`, `FACTS.md`, `attempts/`, and `checkpoints/`.
+- Do not copy or reuse libc/ld from other local challenges, historical solved tasks, download caches, tool caches, or unrelated workspace directories.
+- Local historical materials already present in the workspace can be used for workflow/reference context, but not as challenge-provided libc/ld or exploit evidence for the current task.
 - Online libc fingerprint or offset lookup services such as `libc.rip` are allowed when libc is not provided and symbol leaks need to be matched.
 - You may connect to the target challenge service itself when the task requires local/remote exploit validation.
 

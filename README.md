@@ -72,6 +72,8 @@ In `solve` mode, it resolves challenge names under `challenges/`, loads `prompts
 
 In `fetch` mode, it accepts a challenge URL and loads `prompts/fetch.md`. NSSCTF URLs are handled by the local helper first; other platforms are handled by the agent using the generic fetch prompt.
 
+`exec` mode chains fetch and solve: it first runs the fetch flow for the URL, then resolves the fetched challenge directory and starts the matching solve workflow.
+
 Current workflows:
 
 - `pwn`
@@ -85,7 +87,9 @@ Examples:
 ```bash
 bin/amds --mode solve --workflow pwn newnote
 bin/amds --mode fetch https://www.nssctf.cn/problem/131
+bin/amds --mode exec https://www.nssctf.cn/problem/131
 bin/amds fetch https://www.nssctf.cn/problem/131
+bin/amds exec https://www.nssctf.cn/problem/131
 bin/amds --workflow pwn newnote
 bin/amds --workflow web web_chal
 bin/amds --web web_chal
@@ -106,6 +110,12 @@ Fetch mode:
 - For `https://www.nssctf.cn/problem/<id>`, the generated prompt tells Codex to run `script/fetch_nssctf.py <url>` first.
 - For non-NSSCTF URLs, Codex follows the generic fetch workflow in `prompts/fetch.md`.
 - Fetch mode should only save题面、附件、metadata and environment info; it should not solve the challenge.
+
+Exec mode:
+
+- `bin/amds exec <url>` runs fetch first, then solve on the fetched challenge directory.
+- For fetchable URLs, it infers the solve workflow from the fetched `description.md` or `FACTS.md` category when possible.
+- You can still force a workflow with `--workflow` or `--pwn` / `--web` / `--crypto` / `--misc` / `--reverse`.
 
 For NSSCTF URLs, the direct helper can also be run manually:
 
@@ -341,6 +351,7 @@ Prefer this order:
 3. If `libc` is not provided, leak symbols first and then identify the remote libc from a database such as `libc.rip`.
 
 Avoid silently using the host libc unless that choice is explicitly verified.
+Do not copy `libc` or `ld` from other local challenges, old solves, download caches, or unrelated workspace directories.
 
 ## Outputs
 
