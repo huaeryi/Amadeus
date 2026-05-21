@@ -3,6 +3,7 @@
 优先使用这些 skill：
 - `ctf-misc`：主技能，默认按这个做
 - `solve-challenge`：用于先做总分类和调度
+- `ctf-writeup`：用于最终整理 `wp.md`
 
 这题主要按 misc 路线推进，不要偏离主线；如果确认题目实际属于 crypto/web/reverse/pwn，再在 `STATE.md` 记录 pivot 原因并切换对应技能思路。
 

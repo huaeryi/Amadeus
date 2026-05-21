@@ -68,7 +68,9 @@ bin/restore.sh 20260519-120000-leak-confirmed challenges/baby_tcache
 
 `bin/amds` is a thin wrapper around `codex` for workflow-specific Amadeus prompts.
 
-It resolves challenge names under `challenges/`, loads `prompts/<workflow>.md`, and builds the final prompt for Codex.
+In `solve` mode, it resolves challenge names under `challenges/`, loads `prompts/<workflow>.md`, and builds the final prompt for Codex.
+
+In `fetch` mode, it accepts a challenge URL and loads `prompts/fetch.md`. NSSCTF URLs are handled by the local helper first; other platforms are handled by the agent using the generic fetch prompt.
 
 Current workflows:
 
@@ -98,14 +100,21 @@ bin/amds --workflow pwn newnote -- --search -m gpt-5.5
 
 For compatibility, `bin/amds pwn <challenge>` and `bin/amds <challenge>` still default to `pwn`.
 
-For NSSCTF URLs, a direct fetch helper is also available:
+Fetch mode:
+
+- `bin/amds fetch <url>` starts a Codex fetch-only session.
+- For `https://www.nssctf.cn/problem/<id>`, the generated prompt tells Codex to run `script/fetch_nssctf.py <url>` first.
+- For non-NSSCTF URLs, Codex follows the generic fetch workflow in `prompts/fetch.md`.
+- Fetch mode should only save题面、附件、metadata and environment info; it should not solve the challenge.
+
+For NSSCTF URLs, the direct helper can also be run manually:
 
 ```bash
 script/fetch_nssctf.py https://www.nssctf.cn/problem/131
 NSSCTF_COOKIE='...' script/fetch_nssctf.py https://www.nssctf.cn/problem/131
 ```
 
-`NSSCTF_COOKIE` is only read from the environment. The helper only fetches题面 and附件 APIs, not writeups.
+`NSSCTF_COOKIE` is only read from the environment. The helper only fetches题面 and附件 APIs, not writeups, public solutions, or exploit repositories.
 
 The installed Codex CLI on this workspace does not expose a literal `--yolo` flag, so `bin/amds`
 uses the current equivalent:

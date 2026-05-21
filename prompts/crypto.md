@@ -3,6 +3,7 @@
 优先使用这些 skill：
 - `ctf-crypto`：主技能，默认按这个做
 - `solve-challenge`：用于先做总分类和调度
+- `ctf-writeup`：用于最终整理 `wp.md`
 
 这题主要按 crypto 路线推进，不要偏离主线。
 
