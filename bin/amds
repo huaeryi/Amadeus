@@ -3,10 +3,18 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--append TEXT] [--workflow NAME] <challenge|path> [-- codex_args...]
+usage: amds [--print] [--dry-run] [--append TEXT] [--mode solve|fetch] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse] <challenge|path|url> [-- codex_args...]
 
 examples:
+  amds --mode solve --workflow pwn newnote
+  amds --mode fetch https://www.nssctf.cn/problem/131
+  amds solve pwn newnote
+  amds fetch https://www.nssctf.cn/problem/131
   amds --workflow pwn newnote
+  amds --web web_chal
+  amds --crypto crypto_chal
+  amds --misc misc_chal
+  amds --reverse rev_chal
   amds -w pwn newnote
   amds pwn newnote
   amds pwn challenges/newnote
@@ -17,8 +25,10 @@ examples:
   amds newnote
 
 behavior:
-  - resolves the challenge under Amadeus/challenges/
-  - loads a workflow prompt template, defaulting to pwn
+  - solve mode resolves the challenge under Amadeus/challenges/
+  - fetch mode accepts a challenge URL and generates a fetch-only prompt
+  - loads a workflow prompt template, defaulting to pwn for solve mode
+  - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse
   - launches codex with the current CLI equivalent of "codex --yolo"
 EOF
 }
@@ -64,14 +74,26 @@ resolve_challenge() {
 render_template() {
     local template_path="$1"
     local challenge_path="$2"
+    local target_url="${3:-}"
     local output
+    local escaped_challenge_path
+    local escaped_root_name
+    local escaped_target_url
 
     [ -f "$template_path" ] || die "workflow template not found: $template_path"
+    escaped_challenge_path="$(escape_sed_replacement "$challenge_path")"
+    escaped_root_name="$(escape_sed_replacement "$root_name")"
+    escaped_target_url="$(escape_sed_replacement "$target_url")"
     output="$(sed \
-        -e "s|{{challenge_path}}|${challenge_path}|g" \
-        -e "s|{{root_name}}|${root_name}|g" \
+        -e "s|{{challenge_path}}|${escaped_challenge_path}|g" \
+        -e "s|{{root_name}}|${escaped_root_name}|g" \
+        -e "s|{{target_url}}|${escaped_target_url}|g" \
         "$template_path")"
     printf '%s\n' "$output"
+}
+
+escape_sed_replacement() {
+    printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'
 }
 
 resolve_template() {
@@ -92,6 +114,13 @@ resolve_template() {
     die "workflow template not found for: $name"
 }
 
+template_exists() {
+    local name="$1"
+    [ -f "${prompt_dir}/${name}.md" ] || \
+        [ -f "${legacy_prompt_dir}/${name}.md" ] || \
+        [ -f "${legacy_prompt_dir}/${name}.txt" ]
+}
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "${script_dir}/.." && pwd)"
 workspace_parent="$(cd "${root_dir}/.." && pwd)"
@@ -101,9 +130,10 @@ legacy_prompt_dir="${root_dir}/pts"
 
 print_prompt=0
 dry_run=0
+mode="solve"
 workflow="pwn"
 workflow_explicit=0
-challenge_input=""
+target_input=""
 declare -a append_lines=()
 declare -a codex_args=()
 
@@ -127,6 +157,23 @@ while [ $# -gt 0 ]; do
             workflow_explicit=1
             shift 2
             ;;
+        --mode|-m)
+            [ $# -ge 2 ] || die "--mode requires solve or fetch"
+            case "$2" in
+                solve|fetch)
+                    mode="$2"
+                    ;;
+                *)
+                    die "unknown mode: $2"
+                    ;;
+            esac
+            shift 2
+            ;;
+        --pwn|--web|--crypto|--misc|--reverse)
+            workflow="${1#--}"
+            workflow_explicit=1
+            shift
+            ;;
         --append)
             [ $# -ge 2 ] || die "--append requires text"
             append_lines+=("$2")
@@ -141,29 +188,51 @@ while [ $# -gt 0 ]; do
             die "unknown option: $1"
             ;;
         *)
-            if [ -z "$challenge_input" ] && [ "$workflow_explicit" = "0" ] && [ "$workflow" = "pwn" ] && resolve_template "$1" >/dev/null 2>&1; then
+            if [ -z "$target_input" ] && [ "$workflow_explicit" = "0" ]; then
+                case "$1" in
+                    solve|fetch)
+                        mode="$1"
+                        shift
+                        continue
+                        ;;
+                esac
+            fi
+
+            if [ "$mode" = "solve" ] && [ -z "$target_input" ] && [ "$workflow_explicit" = "0" ] && [ "$workflow" = "pwn" ] && template_exists "$1"; then
                 workflow="$1"
                 shift
                 continue
             fi
 
-            if [ -n "$challenge_input" ]; then
+            if [ -n "$target_input" ]; then
                 die "unexpected extra argument: $1"
             fi
-            challenge_input="$1"
+            target_input="$1"
             shift
             ;;
     esac
 done
 
-[ -n "$challenge_input" ] || die "challenge is required"
+[ -n "$target_input" ] || die "target is required"
 
-challenge_dir="$(resolve_challenge "$challenge_input")"
-challenge_rel="${challenge_dir#${root_dir}/}"
-challenge_prompt_path="${root_name}/${challenge_rel}"
-template_path="$(resolve_template "$workflow")"
+challenge_prompt_path=""
+target_url=""
 
-mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path")
+case "$mode" in
+    solve)
+        challenge_dir="$(resolve_challenge "$target_input")"
+        challenge_rel="${challenge_dir#${root_dir}/}"
+        challenge_prompt_path="${root_name}/${challenge_rel}"
+        template_path="$(resolve_template "$workflow")"
+        ;;
+    fetch)
+        target_url="$target_input"
+        workflow="fetch"
+        template_path="$(resolve_template "$workflow")"
+        ;;
+esac
+
+mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url")
 
 if [ ${#append_lines[@]} -gt 0 ]; then
     prompt_lines+=("${append_lines[@]}")
@@ -194,8 +263,13 @@ codex_cmd+=("$prompt")
 
 if [ "$dry_run" = "1" ]; then
     printf 'workspace: %s\n' "$workspace_parent"
+    printf 'mode: %s\n' "$mode"
     printf 'workflow: %s\n' "$workflow"
-    printf 'challenge: %s\n' "$challenge_prompt_path"
+    if [ "$mode" = "solve" ]; then
+        printf 'challenge: %s\n' "$challenge_prompt_path"
+    else
+        printf 'url: %s\n' "$target_url"
+    fi
     printf 'command:'
     for arg in "${codex_cmd[@]}"; do
         printf ' %q' "$arg"

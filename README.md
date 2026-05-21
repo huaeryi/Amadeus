@@ -70,14 +70,26 @@ bin/restore.sh 20260519-120000-leak-confirmed challenges/baby_tcache
 
 It resolves challenge names under `challenges/`, loads `prompts/<workflow>.md`, and builds the final prompt for Codex.
 
-Current workflow:
+Current workflows:
 
 - `pwn`
+- `web`
+- `crypto`
+- `misc`
+- `reverse`
 
 Examples:
 
 ```bash
+bin/amds --mode solve --workflow pwn newnote
+bin/amds --mode fetch https://www.nssctf.cn/problem/131
+bin/amds fetch https://www.nssctf.cn/problem/131
 bin/amds --workflow pwn newnote
+bin/amds --workflow web web_chal
+bin/amds --web web_chal
+bin/amds --crypto crypto_chal
+bin/amds --misc misc_chal
+bin/amds --reverse rev_chal
 bin/amds --workflow pwn challenges/newnote
 bin/amds --workflow pwn newnote --append "远程地址是 http://node4.anna.nssctf.cn:21280/"
 bin/amds --workflow pwn newnote --dry-run
@@ -85,6 +97,15 @@ bin/amds --workflow pwn newnote -- --search -m gpt-5.5
 ```
 
 For compatibility, `bin/amds pwn <challenge>` and `bin/amds <challenge>` still default to `pwn`.
+
+For NSSCTF URLs, a direct fetch helper is also available:
+
+```bash
+script/fetch_nssctf.py https://www.nssctf.cn/problem/131
+NSSCTF_COOKIE='...' script/fetch_nssctf.py https://www.nssctf.cn/problem/131
+```
+
+`NSSCTF_COOKIE` is only read from the environment. The helper only fetches题面 and附件 APIs, not writeups.
 
 The installed Codex CLI on this workspace does not expose a literal `--yolo` flag, so `bin/amds`
 uses the current equivalent:
@@ -100,7 +121,7 @@ If you want to call it as `amds`, add `Amadeus/bin` to your `PATH`.
 When solving a pwn challenge under `challenges/`, read these first:
 
 1. `AGENTS.md`
-2. `challenges/AGENTS.md`
+2. `prompts/pwn.md` when using or modifying the `amds` pwn workflow
 
 The intended loop is:
 
@@ -262,7 +283,7 @@ Use `solve-challenge` when you want one higher-level entrypoint that decides whe
 For pwn challenges:
 
 1. Read `AGENTS.md`.
-2. Read `challenges/AGENTS.md`.
+2. Use `prompts/pwn.md` as the authoritative `amds` pwn workflow.
 3. Use `ctf-pwn` for exploit reasoning.
 4. Use `STATE.md`, `FACTS.md`, `checkpoints/`, and `attempts/` to keep progress recoverable.
 

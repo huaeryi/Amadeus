@@ -20,7 +20,7 @@ STATIC_DIR = ROOT_DIR / "webui" / "static"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
 CORE_DOCUMENTS = ("STATE.md", "FACTS.md", ".ctf-files", ".pwnrun")
-CHALLENGE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+CHALLENGE_NAME_RE = re.compile(r"^[^/\\\x00]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
 BINARY_PREVIEW_LIMIT = 4096
 INTERNAL_CHECKPOINT_FILES = {".amadeus-head"}
@@ -39,8 +39,8 @@ def isoformat_from_timestamp(timestamp: float) -> str:
 
 
 def challenge_path(name: str) -> Path:
-    if not CHALLENGE_NAME_RE.fullmatch(name):
-        raise ApiError(400, "Invalid challenge name. Use letters, numbers, dot, dash, or underscore.")
+    if not name or name in {".", ".."} or not CHALLENGE_NAME_RE.fullmatch(name):
+        raise ApiError(400, "Invalid challenge name. Do not use slashes, backslashes, NUL bytes, '.', or '..'.")
 
     path = (CHALLENGES_DIR / name).resolve()
     try:

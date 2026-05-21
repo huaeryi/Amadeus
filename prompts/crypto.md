@@ -1,0 +1,33 @@
+开始解决 `{{challenge_path}}` 这道 crypto 题，按 `ctf-crypto` 的思路做。
+
+优先使用这些 skill：
+- `ctf-crypto`：主技能，默认按这个做
+- `solve-challenge`：用于先做总分类和调度
+
+这题主要按 crypto 路线推进，不要偏离主线。
+
+先读：
+- `{{root_name}}/AGENTS.md`
+
+工作要求：
+1. 先运行 `{{root_name}}/bin/init_challenge.sh {{challenge_path}}`
+2. 读取题目目录中的附件、题面、交互脚本、输出文件和源码
+3. 把已确认事实写进 `FACTS.md`
+4. 把当前阶段、下一步、失败路线和开放问题写进 `STATE.md`
+5. 识别密码体制、参数规模、随机数来源、padding/模式/签名细节和可交互 oracle
+6. 优先写可复现的 `solve.py` 或 `exp.py`，不要只在 REPL 中手算
+7. 如果涉及远程交互，脚本应支持本地文件输入和远程连接两种模式
+8. 到关键里程碑时运行 checkpoint；名称不用固定死，应根据题目实际进展命名，例如 `env-ok`、`params-confirmed`、`oracle-confirmed`、`key-recovered`、`plaintext-recovered`
+9. 如果某条路线失败，不要在脏状态上持续修补；在 `attempts/` 记录失败原因，必要时用 `restore.sh` 回退到上一个 checkpoint
+10. 必须实际运行脚本拿到 flag，并把 flag 结果作为完成标准
+11. 最终产出 `exp.py` 或 `solve.py`，以及 `wp.md`
+12. 如果缺少远程信息、附件信息或验证条件，再向我询问
+
+执行约束：
+- 先做本地分析和验证，不要跳过参数检查
+- 不要搜索或读取任何 WP/题解/公开 exploit
+- 不要假设旧脚本一定可用，结论必须基于当前目录中的文件和验证结果
+- 只把确认过的事实写进 `FACTS.md`
+- 推测、分支路线和下一步放进 `STATE.md`
+- 分支失败后优先回退到 checkpoint，再换路线
+- 可以使用 SageMath、Python、z3、PARI/GP、fplll、RsaCtfTool 等本地工具，但要记录关键参数和验证方式

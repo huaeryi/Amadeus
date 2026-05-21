@@ -341,8 +341,8 @@ function renderCheckpointGraph(checkpointGraph, checkpoints) {
     <div class="checkpoint-graph">
       <svg class="checkpoint-graph-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
         <defs>
-          <marker id="checkpoint-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-            <path d="M0,0 L8,4 L0,8 z" fill="rgba(19, 33, 47, 0.36)"></path>
+          <marker id="checkpoint-arrow" markerWidth="5" markerHeight="5" refX="4.4" refY="2.5" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L5,2.5 L0,5 z" fill="rgba(19, 33, 47, 0.36)"></path>
           </marker>
         </defs>
         ${edgeMarkup}
