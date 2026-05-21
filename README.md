@@ -17,6 +17,8 @@ Amadeus is meant to work with Codex skills such as `ctf-pwn`, not replace them.
 - `bin/checkpoint.sh`: snapshot tracked files into a named checkpoint
 - `bin/restore.sh`: restore tracked files from a checkpoint
 - `bin/run_pwn.sh`: unified local / remote / patched execution entrypoint
+- `bin/amds`: launch Codex with a workflow-specific Amadeus prompt
+- `prompts/`: workflow prompt templates such as `pwn.md`
 - `templates/`: default files copied into challenge directories
 - `challenges/`: challenge folders such as `challenges/baby_tcache`
 - `webui/`: challenge management frontend and backend
@@ -47,6 +49,12 @@ Run with the patched binary / provided loader setup:
 bin/run_pwn.sh challenges/baby_tcache patched
 ```
 
+Launch a standard Codex pwn-solving session:
+
+```bash
+bin/amds --workflow pwn baby_tcache
+```
+
 Create and restore checkpoints:
 
 ```bash
@@ -55,6 +63,37 @@ bin/checkpoint.sh leak-confirmed challenges/baby_tcache
 bin/restore.sh latest challenges/baby_tcache
 bin/restore.sh 20260519-120000-leak-confirmed challenges/baby_tcache
 ```
+
+## Codex Shortcut
+
+`bin/amds` is a thin wrapper around `codex` for workflow-specific Amadeus prompts.
+
+It resolves challenge names under `challenges/`, loads `prompts/<workflow>.md`, and builds the final prompt for Codex.
+
+Current workflow:
+
+- `pwn`
+
+Examples:
+
+```bash
+bin/amds --workflow pwn newnote
+bin/amds --workflow pwn challenges/newnote
+bin/amds --workflow pwn newnote --append "远程地址是 http://node4.anna.nssctf.cn:21280/"
+bin/amds --workflow pwn newnote --dry-run
+bin/amds --workflow pwn newnote -- --search -m gpt-5.5
+```
+
+For compatibility, `bin/amds pwn <challenge>` and `bin/amds <challenge>` still default to `pwn`.
+
+The installed Codex CLI on this workspace does not expose a literal `--yolo` flag, so `bin/amds`
+uses the current equivalent:
+
+```bash
+codex --dangerously-bypass-approvals-and-sandbox
+```
+
+If you want to call it as `amds`, add `Amadeus/bin` to your `PATH`.
 
 ## Pwn Workflow
 

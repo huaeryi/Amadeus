@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+usage: amds [--print] [--dry-run] [--append TEXT] [--workflow NAME] <challenge|path> [-- codex_args...]
+
+examples:
+  amds --workflow pwn newnote
+  amds -w pwn newnote
+  amds pwn newnote
+  amds pwn challenges/newnote
+  amds pwn Amadeus/challenges/newnote
+  amds --workflow pwn newnote --append "远程地址是 http://node4.anna.nssctf.cn:21280/"
+  amds --workflow pwn newnote --dry-run
+  amds --workflow pwn newnote -- --search -m gpt-5.5
+  amds newnote
+
+behavior:
+  - resolves the challenge under Amadeus/challenges/
+  - loads a workflow prompt template, defaulting to pwn
+  - launches codex with the current CLI equivalent of "codex --yolo"
+EOF
+}
+
+die() {
+    echo "amds: $*" >&2
+    exit 1
+}
+
+resolve_challenge() {
+    local input="$1"
+    local candidate=""
+
+    case "$input" in
+        /*)
+            candidate="$input"
+            ;;
+        "${root_name}/challenges/"*)
+            candidate="${workspace_parent}/${input}"
+            ;;
+        challenges/*)
+            candidate="${root_dir}/${input}"
+            ;;
+        *)
+            candidate="${root_dir}/challenges/${input}"
+            ;;
+    esac
+
+    candidate="$(realpath -m "$candidate" 2>/dev/null || true)"
+    [ -n "$candidate" ] || die "challenge directory not found: $input"
+
+    if [[ "$candidate" != "${root_dir}/challenges/"* ]]; then
+        die "challenge must live under ${root_dir}/challenges: $input"
+    fi
+
+    if [ -e "$candidate" ] && [ ! -d "$candidate" ]; then
+        die "challenge path exists but is not a directory: $input"
+    fi
+
+    printf '%s\n' "$candidate"
+}
+
+render_template() {
+    local template_path="$1"
+    local challenge_path="$2"
+    local output
+
+    [ -f "$template_path" ] || die "workflow template not found: $template_path"
+    output="$(sed \
+        -e "s|{{challenge_path}}|${challenge_path}|g" \
+        -e "s|{{root_name}}|${root_name}|g" \
+        "$template_path")"
+    printf '%s\n' "$output"
+}
+
+resolve_template() {
+    local name="$1"
+    local candidate
+
+    for candidate in \
+        "${prompt_dir}/${name}.md" \
+        "${legacy_prompt_dir}/${name}.md" \
+        "${legacy_prompt_dir}/${name}.txt"
+    do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    die "workflow template not found for: $name"
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root_dir="$(cd "${script_dir}/.." && pwd)"
+workspace_parent="$(cd "${root_dir}/.." && pwd)"
+root_name="$(basename "${root_dir}")"
+prompt_dir="${root_dir}/prompts"
+legacy_prompt_dir="${root_dir}/pts"
+
+print_prompt=0
+dry_run=0
+workflow="pwn"
+workflow_explicit=0
+challenge_input=""
+declare -a append_lines=()
+declare -a codex_args=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -p|--print)
+            print_prompt=1
+            shift
+            ;;
+        -n|--dry-run)
+            dry_run=1
+            shift
+            ;;
+        -w|--workflow)
+            [ $# -ge 2 ] || die "--workflow requires a name"
+            workflow="$2"
+            workflow_explicit=1
+            shift 2
+            ;;
+        --append)
+            [ $# -ge 2 ] || die "--append requires text"
+            append_lines+=("$2")
+            shift 2
+            ;;
+        --)
+            shift
+            codex_args=("$@")
+            break
+            ;;
+        -*)
+            die "unknown option: $1"
+            ;;
+        *)
+            if [ -z "$challenge_input" ] && [ "$workflow_explicit" = "0" ] && [ "$workflow" = "pwn" ] && resolve_template "$1" >/dev/null 2>&1; then
+                workflow="$1"
+                shift
+                continue
+            fi
+
+            if [ -n "$challenge_input" ]; then
+                die "unexpected extra argument: $1"
+            fi
+            challenge_input="$1"
+            shift
+            ;;
+    esac
+done
+
+[ -n "$challenge_input" ] || die "challenge is required"
+
+challenge_dir="$(resolve_challenge "$challenge_input")"
+challenge_rel="${challenge_dir#${root_dir}/}"
+challenge_prompt_path="${root_name}/${challenge_rel}"
+template_path="$(resolve_template "$workflow")"
+
+mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path")
+
+if [ ${#append_lines[@]} -gt 0 ]; then
+    prompt_lines+=("${append_lines[@]}")
+fi
+
+printf -v prompt '%s\n' "${prompt_lines[@]}"
+prompt="${prompt%$'\n'}"
+
+if [ "$print_prompt" = "1" ] && [ "$dry_run" = "0" ]; then
+    printf '%s\n' "$prompt"
+    exit 0
+fi
+
+codex_bin="${CODEX_BIN:-codex}"
+command -v "$codex_bin" >/dev/null 2>&1 || die "codex not found: $codex_bin"
+
+codex_cmd=(
+    "$codex_bin"
+    --dangerously-bypass-approvals-and-sandbox
+    -C "$workspace_parent"
+)
+
+if [ ${#codex_args[@]} -gt 0 ]; then
+    codex_cmd+=("${codex_args[@]}")
+fi
+
+codex_cmd+=("$prompt")
+
+if [ "$dry_run" = "1" ]; then
+    printf 'workspace: %s\n' "$workspace_parent"
+    printf 'workflow: %s\n' "$workflow"
+    printf 'challenge: %s\n' "$challenge_prompt_path"
+    printf 'command:'
+    for arg in "${codex_cmd[@]}"; do
+        printf ' %q' "$arg"
+    done
+    printf '\n\nprompt:\n%s\n' "$prompt"
+    exit 0
+fi
+
+exec "${codex_cmd[@]}"

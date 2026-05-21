@@ -1,0 +1,23 @@
+# Amadeus Project Rules
+
+This repository is used to evaluate challenge-solving behavior under local-only conditions.
+
+## Anti-Cheat
+
+- Do not use web search, web browsing, or external online writeups to solve CTF challenges in this repository.
+- Do not search for the challenge name, binary name, service URL, organizer name, or known flag fragments on the internet.
+- Do not fetch public writeups, exploit repositories, blog posts, GitHub solutions, forum posts, or paste sites related to the target challenge.
+- Do not treat internet-sourced exploit code, offsets, gadget chains, or attack paths as valid evidence for a solution here.
+
+## Allowed Sources
+
+- Use the files that already exist in the repository or in the current challenge directory, including binaries, patched binaries, libc, ld, `exp_template.py`, `exp.py`, `wp.md`, `STATE.md`, `FACTS.md`, `attempts/`, and `checkpoints/`.
+- Local historical materials already present in the workspace count as challenge-provided context, not cheating.
+- Online libc fingerprint or offset lookup services such as `libc.rip` are allowed when libc is not provided and symbol leaks need to be matched.
+- You may connect to the target challenge service itself when the task requires local/remote exploit validation.
+
+## Operating Rule
+
+- Default to local-first analysis. Base conclusions on the current workspace, local tooling output, and direct validation.
+- If a challenge appears to require information that would normally come from the internet, stop and state that the repository is running in anti-cheat mode instead of searching externally.
+- Only relax these restrictions if the user explicitly overrides them for the current task.

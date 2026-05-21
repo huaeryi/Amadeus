@@ -19,10 +19,11 @@ For any challenge in this directory:
     - If the challenge does not provide libc, leak enough symbols first and then identify libc from databases such as `libc.rip`.
 11. Do not default to the system libc when a challenge-local libc should exist but has not been verified yet.
 12. Validate assumptions with local commands, `checksec`, `file`, `ldd`, `pwndbg`, `gdb`, `ROPgadget`, and the binary itself as needed.
-13. Treat `FACTS.md` as append-only verified data. If a detail is still a guess, keep it in `STATE.md`, not in `FACTS.md`.
-14. Use `STATE.md` for the current stage, next step, checkpoint plan, rejected branches, and open questions.
-15. Create checkpoints only at meaningful milestones. They are rollback anchors, not autosaves.
-16. Name checkpoints after confirmed capabilities or facts, not intent. Good generic names include:
+13. In test or anti-cheat environments, do not use web search for writeups, public exploit repositories, or challenge solutions. Local challenge files and workspace materials are the primary source of truth. Online libc lookup sites are still allowed when needed for libc identification from verified leaks.
+14. Treat `FACTS.md` as append-only verified data. If a detail is still a guess, keep it in `STATE.md`, not in `FACTS.md`.
+15. Use `STATE.md` for the current stage, next step, checkpoint plan, rejected branches, and open questions.
+16. Create checkpoints only at meaningful milestones. They are rollback anchors, not autosaves.
+17. Name checkpoints after confirmed capabilities or facts, not intent. Good generic names include:
    - `env-ok`
    - `primitive-confirmed`
    - `offset-confirmed`
@@ -36,22 +37,22 @@ For any challenge in this directory:
    - `fsop-ready`
    - `orw-working`
    - `flag-confirmed`
-17. Default checkpoint budget:
+18. Default checkpoint budget:
    - simple stack or format-string challenge: 3 to 4 checkpoints
    - medium stack, format-string, or heap challenge: 4 to 6 checkpoints
    - complex heap, seccomp, sandbox, or kernel challenge: 5 to 8 checkpoints
-18. Recommended checkpoint cadence by bug class:
+19. Recommended checkpoint cadence by bug class:
    - stack: `env-ok` -> `offset-confirmed` -> `leak-confirmed` or `libc-base-confirmed` -> `rop-working` or `orw-working` -> `flag-confirmed`
    - format string: `env-ok` -> `fmt-offset-confirmed` -> `leak-confirmed` -> `write-confirmed` -> `flag-confirmed`
    - heap: `env-ok` -> `heap-layout-confirmed` -> `heap-base-confirmed` and/or `libc-base-confirmed` -> `arb-write-confirmed` -> `pivot-ready`, `setcontext-ready`, or `fsop-ready` -> `orw-working` -> `flag-confirmed`
    - seccomp or sandboxed userland: `env-ok` -> `seccomp-profile-confirmed` -> `primitive-confirmed` -> `openat-orw-working` or `mmap-bypass-working` -> `flag-confirmed`
-19. Always checkpoint before risky pivots such as:
+20. Always checkpoint before risky pivots such as:
    - the first heap metadata corruption that may poison later tests
    - the first `setcontext`, FSOP, ret2dlresolve, sigreturn, or `house-of-*` attempt
    - switching from one exploit path to a different path
    - adapting a locally working exploit to remote
-20. If a branch fails, write a short note under `attempts/` with what was tried, why it failed, and which checkpoint was last good. Then restore instead of continuing on a dirty state.
-21. Final outputs are `exp.py` and `wp.md`.
+21. If a branch fails, write a short note under `attempts/` with what was tried, why it failed, and which checkpoint was last good. Then restore instead of continuing on a dirty state.
+22. Final outputs are `exp.py` and `wp.md`.
 
 Suggested pwn loop:
 
