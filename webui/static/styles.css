@@ -294,6 +294,61 @@ textarea {
   gap: 8px;
 }
 
+.checkpoint-graph {
+  border: 1px solid rgba(19, 33, 47, 0.08);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.42);
+  overflow-x: auto;
+}
+
+.checkpoint-graph-empty {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.checkpoint-graph-svg {
+  display: block;
+  min-width: 100%;
+  height: auto;
+}
+
+.checkpoint-svg-edge {
+  fill: none;
+  stroke: rgba(19, 33, 47, 0.22);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.checkpoint-svg-dot {
+  fill: rgba(19, 33, 47, 0.32);
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 3;
+}
+
+.checkpoint-svg-node.head .checkpoint-svg-dot {
+  fill: #0e8f7d;
+}
+
+.checkpoint-svg-node.latest .checkpoint-svg-dot {
+  stroke: #db783c;
+  stroke-width: 4;
+}
+
+.checkpoint-svg-title {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.checkpoint-svg-meta {
+  fill: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

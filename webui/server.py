@@ -23,6 +23,8 @@ CORE_DOCUMENTS = ("STATE.md", "FACTS.md", ".ctf-files", ".pwnrun")
 CHALLENGE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
 BINARY_PREVIEW_LIMIT = 4096
+INTERNAL_CHECKPOINT_FILES = {".amadeus-head"}
+CHECKPOINT_GRAPH_FILE = ".checkpoint-graph.json"
 
 
 @dataclass
@@ -93,6 +95,23 @@ def parse_meta_file(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         meta[key.strip()] = value.strip()
     return meta
+
+
+def read_checkpoint_graph(checkpoints_dir: Path) -> dict[str, Any] | None:
+    graph_path = checkpoints_dir / CHECKPOINT_GRAPH_FILE
+    if not graph_path.exists():
+        return None
+
+    try:
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(graph, dict):
+        return None
+    graph.setdefault("nodes", [])
+    graph.setdefault("edges", [])
+    return graph
 
 
 def run_script(script_name: str, *args: str) -> dict[str, Any]:
@@ -271,15 +290,67 @@ def collect_attempts(path: Path) -> list[dict[str, Any]]:
 def collect_checkpoints(path: Path) -> list[dict[str, Any]]:
     checkpoints_dir = path / "checkpoints"
     latest_name = None
+    head_name = None
     latest_link = checkpoints_dir / "latest"
+    head_file = checkpoints_dir / ".amadeus-head"
     if latest_link.is_symlink():
         latest_name = latest_link.resolve().name
+    if head_file.exists():
+        head_name = head_file.read_text(encoding="utf-8").strip() or None
+
+    graph = read_checkpoint_graph(checkpoints_dir)
+    if graph:
+        node_map: dict[str, dict[str, Any]] = {}
+        for node in graph.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("id", "")).strip()
+            if not node_id:
+                continue
+            entry_dir = checkpoints_dir / node_id
+            node_map[node_id] = {
+                "id": node_id,
+                "name": str(node.get("name", node_id)),
+                "created_at": str(node.get("created_at", "")) or isoformat_from_timestamp(entry_dir.stat().st_mtime if entry_dir.exists() else path.stat().st_mtime),
+                "target_dir": str(node.get("target_dir", ".")),
+                "parent_id": str(node.get("parent_id", "")).strip() or None,
+            }
+
+        for edge in graph.get("edges", []):
+            if not isinstance(edge, dict):
+                continue
+            child = str(edge.get("child", "")).strip()
+            parent = str(edge.get("parent", "")).strip() or None
+            if child in node_map:
+                node_map[child]["parent_id"] = parent
+
+        checkpoints = []
+        for entry in sorted(checkpoints_dir.iterdir(), key=lambda item: item.name.lower()):
+            if not entry.is_dir() or entry.name == "latest":
+                continue
+            meta = parse_meta_file(entry / "META.txt")
+            node = node_map.get(entry.name, {})
+            stat = entry.stat()
+            checkpoints.append(
+                {
+                    "id": meta.get("checkpoint_id", node.get("id", entry.name)),
+                    "name": meta.get("name", node.get("name", entry.name)),
+                    "created_at": meta.get("created_at", node.get("created_at", isoformat_from_timestamp(stat.st_mtime))),
+                    "target_dir": meta.get("target_dir", node.get("target_dir", ".")),
+                    "parent_id": meta.get("parent_checkpoint", node.get("parent_id", None)) or None,
+                    "is_latest": entry.name == latest_name,
+                    "is_head": entry.name == head_name,
+                }
+            )
+
+        checkpoints.sort(key=lambda checkpoint: (checkpoint["created_at"], checkpoint["id"]), reverse=True)
+        return checkpoints
 
     checkpoints: list[dict[str, Any]] = []
     if not checkpoints_dir.exists():
         return checkpoints
 
-    for entry in sorted(checkpoints_dir.iterdir(), key=lambda item: item.name.lower(), reverse=True):
+    for entry in sorted(checkpoints_dir.iterdir(), key=lambda item: item.name.lower()):
         if not entry.is_dir() or entry.name == "latest":
             continue
         meta = parse_meta_file(entry / "META.txt")
@@ -290,9 +361,30 @@ def collect_checkpoints(path: Path) -> list[dict[str, Any]]:
                 "name": meta.get("name", entry.name),
                 "created_at": meta.get("created_at", isoformat_from_timestamp(stat.st_mtime)),
                 "target_dir": meta.get("target_dir", "."),
+                "parent_id": meta.get("parent_checkpoint", "").strip() or None,
                 "is_latest": entry.name == latest_name,
+                "is_head": entry.name == head_name,
             }
         )
+
+    checkpoints.sort(key=lambda checkpoint: (checkpoint["created_at"], checkpoint["id"]))
+    previous_id: str | None = None
+    known_ids = {checkpoint["id"] for checkpoint in checkpoints}
+    for checkpoint in checkpoints:
+        parent_id = checkpoint["parent_id"]
+        if parent_id and parent_id in known_ids:
+            previous_id = checkpoint["id"]
+            continue
+        checkpoint["parent_id"] = previous_id
+        previous_id = checkpoint["id"]
+
+    checkpoints.sort(key=lambda checkpoint: (checkpoint["created_at"], checkpoint["id"]), reverse=True)
+
+    if head_name is None and latest_name is not None:
+        for checkpoint in checkpoints:
+            if checkpoint["id"] == latest_name:
+                checkpoint["is_head"] = True
+
     return checkpoints
 
 
@@ -355,10 +447,12 @@ def challenge_detail(name: str) -> dict[str, Any]:
         raise ApiError(400, f"Challenge path is not a directory: {name}")
 
     documents = {document: read_text_if_exists(path / document) for document in CORE_DOCUMENTS}
+    checkpoints_dir = path / "checkpoints"
     return {
         "summary": challenge_summary(path),
         "documents": documents,
         "checkpoints": collect_checkpoints(path),
+        "checkpoint_graph": read_checkpoint_graph(checkpoints_dir),
         "attempts": collect_attempts(path),
         "artifacts": collect_artifacts(path),
     }

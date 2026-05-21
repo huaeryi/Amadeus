@@ -68,13 +68,51 @@ The intended loop is:
 1. Initialize the challenge if `STATE.md` and `FACTS.md` do not exist yet.
 2. Inspect the binary, patched binary, `libc`, `ld`, and `exp_template.py` if present.
 3. Record confirmed facts in `FACTS.md`.
-4. Record current stage, next step, rejected branches, and open questions in `STATE.md`.
+4. Record current stage, primitive, next step, checkpoint plan, rejected branches, and open questions in `STATE.md`.
 5. Use `bin/run_pwn.sh <challenge_dir> [local|remote|patched]` as the standard entrypoint.
 6. Checkpoint only after a real milestone such as `primitive-confirmed` or `libc-base-confirmed`.
 7. Produce `exp.py` and `wp.md` as final outputs.
 
 Add extra tracked files by editing `.ctf-files` inside the challenge directory.
 Keep it to files, not directories.
+
+## Checkpoint Strategy
+
+Use checkpoints as rollback anchors, not autosaves.
+
+- Simple stack or format-string challenge: usually 3 to 4 checkpoints.
+- Medium stack, format-string, or heap challenge: usually 4 to 6 checkpoints.
+- Complex heap, seccomp, sandbox, or kernel challenge: usually 5 to 8 checkpoints.
+
+Name checkpoints after confirmed facts or working capabilities:
+
+- `env-ok`
+- `primitive-confirmed`
+- `offset-confirmed`
+- `pie-leaked`
+- `canary-leaked`
+- `libc-base-confirmed`
+- `arb-read-confirmed`
+- `arb-write-confirmed`
+- `rop-ready`
+- `setcontext-ready`
+- `fsop-ready`
+- `orw-working`
+- `flag-confirmed`
+
+Recommended cadence by challenge type:
+
+- stack: `env-ok` -> `offset-confirmed` -> `leak-confirmed` or `libc-base-confirmed` -> `rop-working` or `orw-working` -> `flag-confirmed`
+- format string: `env-ok` -> `fmt-offset-confirmed` -> `leak-confirmed` -> `write-confirmed` -> `flag-confirmed`
+- heap: `env-ok` -> `heap-layout-confirmed` -> `heap-base-confirmed` and/or `libc-base-confirmed` -> `arb-write-confirmed` -> `pivot-ready`, `setcontext-ready`, or `fsop-ready` -> `orw-working` -> `flag-confirmed`
+- seccomp or sandboxed userland: `env-ok` -> `seccomp-profile-confirmed` -> `primitive-confirmed` -> `openat-orw-working` or `mmap-bypass-working` -> `flag-confirmed`
+
+Always checkpoint before risky pivots such as:
+
+- the first large heap metadata corruption
+- the first `setcontext`, FSOP, ret2dlresolve, sigreturn, or `house-of-*` attempt
+- switching exploit paths
+- adapting a locally working exploit to remote
 
 ## Web UI
 

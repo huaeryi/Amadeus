@@ -9,6 +9,7 @@ fi
 checkpoint_name="$1"
 target_dir="${2:-.}"
 checkpoint_dir="${target_dir}/checkpoints/${checkpoint_name}"
+head_file="${target_dir}/checkpoints/.amadeus-head"
 
 if [ "${checkpoint_name}" = "latest" ]; then
     checkpoint_dir="${target_dir}/checkpoints/latest"
@@ -51,4 +52,5 @@ while IFS= read -r path || [ -n "${path}" ]; do
     cp -a "${src}" "${dst}"
 done < "${manifest}"
 
+printf '%s\n' "$(basename "${resolved_dir}")" > "${head_file}"
 echo "restored ${checkpoint_name} into ${target_dir}"

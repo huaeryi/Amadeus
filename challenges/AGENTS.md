@@ -19,17 +19,39 @@ For any challenge in this directory:
     - If the challenge does not provide libc, leak enough symbols first and then identify libc from databases such as `libc.rip`.
 11. Do not default to the system libc when a challenge-local libc should exist but has not been verified yet.
 12. Validate assumptions with local commands, `checksec`, `file`, `ldd`, `pwndbg`, `gdb`, `ROPgadget`, and the binary itself as needed.
-13. Create checkpoints only at meaningful milestones. The principle is fixed, but the names should match the actual exploit progress of the current challenge.
-14. Good checkpoint names describe a confirmed capability or fact, for example:
+13. Treat `FACTS.md` as append-only verified data. If a detail is still a guess, keep it in `STATE.md`, not in `FACTS.md`.
+14. Use `STATE.md` for the current stage, next step, checkpoint plan, rejected branches, and open questions.
+15. Create checkpoints only at meaningful milestones. They are rollback anchors, not autosaves.
+16. Name checkpoints after confirmed capabilities or facts, not intent. Good generic names include:
    - `env-ok`
    - `primitive-confirmed`
    - `offset-confirmed`
-   - `leak-confirmed`
+   - `pie-leaked`
+   - `canary-leaked`
    - `libc-base-confirmed`
-   - `code-exec-confirmed`
-15. For format-string, heap, seccomp, sandbox, or kernel challenges, prefer more specific names such as `fmt-offset-confirmed`, `heap-base-confirmed`, `openat-orw-working`, or `kbase-leaked`.
-16. If a branch fails, write a short note under `attempts/` and restore a prior checkpoint instead of continuing on a dirty state.
-17. Final outputs are `exp.py` and `wp.md`.
+   - `arb-read-confirmed`
+   - `arb-write-confirmed`
+   - `rop-ready`
+   - `setcontext-ready`
+   - `fsop-ready`
+   - `orw-working`
+   - `flag-confirmed`
+17. Default checkpoint budget:
+   - simple stack or format-string challenge: 3 to 4 checkpoints
+   - medium stack, format-string, or heap challenge: 4 to 6 checkpoints
+   - complex heap, seccomp, sandbox, or kernel challenge: 5 to 8 checkpoints
+18. Recommended checkpoint cadence by bug class:
+   - stack: `env-ok` -> `offset-confirmed` -> `leak-confirmed` or `libc-base-confirmed` -> `rop-working` or `orw-working` -> `flag-confirmed`
+   - format string: `env-ok` -> `fmt-offset-confirmed` -> `leak-confirmed` -> `write-confirmed` -> `flag-confirmed`
+   - heap: `env-ok` -> `heap-layout-confirmed` -> `heap-base-confirmed` and/or `libc-base-confirmed` -> `arb-write-confirmed` -> `pivot-ready`, `setcontext-ready`, or `fsop-ready` -> `orw-working` -> `flag-confirmed`
+   - seccomp or sandboxed userland: `env-ok` -> `seccomp-profile-confirmed` -> `primitive-confirmed` -> `openat-orw-working` or `mmap-bypass-working` -> `flag-confirmed`
+19. Always checkpoint before risky pivots such as:
+   - the first heap metadata corruption that may poison later tests
+   - the first `setcontext`, FSOP, ret2dlresolve, sigreturn, or `house-of-*` attempt
+   - switching from one exploit path to a different path
+   - adapting a locally working exploit to remote
+20. If a branch fails, write a short note under `attempts/` with what was tried, why it failed, and which checkpoint was last good. Then restore instead of continuing on a dirty state.
+21. Final outputs are `exp.py` and `wp.md`.
 
 Suggested pwn loop:
 
@@ -38,9 +60,11 @@ Suggested pwn loop:
 3. Record confirmed offsets, leaks, gadget choices, and libc reasoning in `FACTS.md`.
 4. Record candidate exploit branches and why one branch was chosen in `STATE.md`.
 5. Use `run_pwn.sh info <challenge_dir>` to inspect the resolved binary/libc/ld/host/port state when setup looks wrong.
-6. If libc is unknown, treat symbol leaks as a distinct milestone before choosing offsets or one-gadgets.
-7. Name checkpoints after what has been confirmed, not after vague intent.
-8. Checkpoint before risky exploit pivots.
-9. Verify the final exploit locally before adapting to remote.
+6. After the first stable primitive, create a checkpoint such as `primitive-confirmed`.
+7. If libc is unknown, treat symbol leaks as a distinct milestone before choosing offsets or one-gadgets.
+8. After the first stable PIE, canary, heap, or libc leak, create the corresponding checkpoint.
+9. Checkpoint again before risky pivots and before the remote adaptation pass.
+10. Verify the final exploit locally before adapting to remote.
+11. Create `flag-confirmed` only after the final exploit is stable and the tracked files are worth preserving.
 
 This workflow is compatible with `ctf-pwn`: the skill provides exploitation technique knowledge, while these files provide local state management and rollback points.

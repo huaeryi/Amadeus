@@ -114,6 +114,244 @@ function buildBrowserBreadcrumbs(path) {
   return crumbs;
 }
 
+function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
+  const checkpointById = new Map((checkpoints || []).map((checkpoint) => [checkpoint.id, checkpoint]));
+  const graphNodes = Array.isArray(checkpointGraph?.nodes) ? checkpointGraph.nodes : [];
+  const graphEdges = Array.isArray(checkpointGraph?.edges) ? checkpointGraph.edges : [];
+  const nodeById = new Map();
+  const nodeOrder = [];
+
+  const addNode = (rawNode, fallbackCheckpoint) => {
+    const id = String(rawNode?.id || fallbackCheckpoint?.id || "").trim();
+    if (!id) {
+      return;
+    }
+
+    const checkpoint = fallbackCheckpoint || checkpointById.get(id) || {};
+    if (nodeById.has(id)) {
+      const node = nodeById.get(id);
+      node.name = String(rawNode?.name || node.name || checkpoint.name || id);
+      node.created_at = String(rawNode?.created_at || node.created_at || checkpoint.created_at || "");
+      node.target_dir = String(rawNode?.target_dir || node.target_dir || checkpoint.target_dir || ".");
+      node.parent_id = String(rawNode?.parent_id || node.parent_id || checkpoint.parent_id || "").trim() || null;
+      node.is_latest = node.is_latest || Boolean(checkpoint.is_latest);
+      node.is_head = node.is_head || Boolean(checkpoint.is_head);
+      return;
+    }
+
+    nodeById.set(id, {
+      id,
+      name: String(rawNode?.name || checkpoint.name || id),
+      created_at: String(rawNode?.created_at || checkpoint.created_at || ""),
+      target_dir: String(rawNode?.target_dir || checkpoint.target_dir || "."),
+      parent_id: String(rawNode?.parent_id || checkpoint.parent_id || "").trim() || null,
+      is_latest: Boolean(checkpoint.is_latest),
+      is_head: Boolean(checkpoint.is_head),
+    });
+    nodeOrder.push(id);
+  };
+
+  for (const rawNode of graphNodes) {
+    addNode(rawNode);
+  }
+
+  for (const checkpoint of checkpoints || []) {
+    addNode(checkpoint, checkpoint);
+  }
+
+  for (const edge of graphEdges) {
+    if (!edge || typeof edge !== "object") {
+      continue;
+    }
+    const child = String(edge.child || "").trim();
+    const parent = String(edge.parent || "").trim() || null;
+    if (!child || !nodeById.has(child)) {
+      continue;
+    }
+    nodeById.get(child).parent_id = parent;
+  }
+
+  const edges = [];
+  const edgeSeen = new Set();
+  for (const edge of graphEdges) {
+    if (!edge || typeof edge !== "object") {
+      continue;
+    }
+    const parent = String(edge.parent || "").trim();
+    const child = String(edge.child || "").trim();
+    if (!parent || !child) {
+      continue;
+    }
+    const key = `${parent}->${child}`;
+    if (edgeSeen.has(key)) {
+      continue;
+    }
+    edgeSeen.add(key);
+    edges.push({ parent, child });
+  }
+
+  if (!edges.length) {
+    for (const node of nodeById.values()) {
+      if (node.parent_id && nodeById.has(node.parent_id)) {
+        const key = `${node.parent_id}->${node.id}`;
+        if (!edgeSeen.has(key)) {
+          edgeSeen.add(key);
+          edges.push({ parent: node.parent_id, child: node.id });
+        }
+      }
+    }
+  }
+
+  const childrenByParent = new Map();
+  const childIds = new Set();
+  for (const edge of edges) {
+    if (!childrenByParent.has(edge.parent)) {
+      childrenByParent.set(edge.parent, []);
+    }
+    childrenByParent.get(edge.parent).push(edge.child);
+    childIds.add(edge.child);
+  }
+
+  const orderedIds = [];
+  const visited = new Set();
+  const visit = (id) => {
+    if (!id || visited.has(id) || !nodeById.has(id)) {
+      return;
+    }
+    visited.add(id);
+    orderedIds.push(id);
+    for (const child of childrenByParent.get(id) || []) {
+      visit(child);
+    }
+  };
+
+  const roots = nodeOrder.filter((id) => !childIds.has(id));
+  for (const root of roots.length ? roots : nodeOrder.slice(0, 1)) {
+    visit(root);
+  }
+  for (const id of nodeOrder) {
+    visit(id);
+  }
+
+  const nodes = orderedIds.map((id) => nodeById.get(id)).filter(Boolean);
+  return { nodes, edges };
+}
+
+function renderCheckpointGraph(checkpointGraph, checkpoints) {
+  const { nodes, edges } = normalizeCheckpointGraph(checkpointGraph, checkpoints);
+  if (!nodes.length) {
+    return `
+      <div class="checkpoint-graph">
+        <div class="checkpoint-graph-empty">No checkpoints</div>
+      </div>
+    `;
+  }
+
+  const sorted = nodes;
+  const childMap = new Map();
+  for (const edge of edges) {
+    if (!childMap.has(edge.parent)) {
+      childMap.set(edge.parent, []);
+    }
+    childMap.get(edge.parent).push(edge.child);
+  }
+
+  const columnById = new Map();
+  let nextColumn = 0;
+  for (const node of sorted) {
+    if (columnById.has(node.id)) {
+      continue;
+    }
+    if (!node.parent_id || !columnById.has(node.parent_id)) {
+      columnById.set(node.id, nextColumn++);
+      continue;
+    }
+
+    const siblings = childMap.get(node.parent_id) || [];
+    const siblingIndex = siblings.indexOf(node.id);
+    if (siblingIndex <= 0) {
+      columnById.set(node.id, columnById.get(node.parent_id));
+    } else {
+      columnById.set(node.id, nextColumn++);
+    }
+  }
+
+  const rowById = new Map(sorted.map((node, index) => [node.id, index]));
+  const maxColumn = Math.max(...columnById.values(), 0);
+  const xStep = 110;
+  const yStep = 72;
+  const left = 24;
+  const top = 22;
+  const width = left + maxColumn * xStep + 320;
+  const height = top + Math.max(0, sorted.length - 1) * yStep + 42;
+  const nodeRadius = 8;
+  const edgeGap = 8;
+
+  const edgeMarkup = edges
+    .filter((edge) => rowById.has(edge.parent) && rowById.has(edge.child))
+    .map((edge) => {
+      const parentX = left + columnById.get(edge.parent) * xStep;
+      const parentY = top + rowById.get(edge.parent) * yStep;
+      const childX = left + columnById.get(edge.child) * xStep;
+      const childY = top + rowById.get(edge.child) * yStep;
+      const midY = parentY + (childY - parentY) / 2;
+      const deltaX = childX - parentX;
+      const deltaY = childY - parentY;
+
+      if (deltaX === 0) {
+        const directionY = Math.sign(deltaY) || 1;
+        const endY = childY - directionY * (nodeRadius + edgeGap);
+        return `<path class="checkpoint-svg-edge" marker-end="url(#checkpoint-arrow)" d="M ${parentX} ${parentY} L ${parentX} ${midY} L ${childX} ${endY}" />`;
+      }
+
+      const directionX = Math.sign(deltaX) || 1;
+      const endX = childX - directionX * (nodeRadius + edgeGap);
+      return `<path class="checkpoint-svg-edge" marker-end="url(#checkpoint-arrow)" d="M ${parentX} ${parentY} L ${parentX} ${midY} L ${endX} ${midY} L ${endX} ${childY}" />`;
+    })
+    .join("");
+
+  const nodeMarkup = sorted
+    .map((node) => {
+      const x = left + columnById.get(node.id) * xStep;
+      const y = top + rowById.get(node.id) * yStep;
+      const classes = [
+        "checkpoint-svg-node",
+        node.is_head ? "head" : "",
+        node.is_latest ? "latest" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const branchText = (childMap.get(node.id) || []).length > 1 ? "branch" : "";
+      const badges = [node.is_head ? "head" : "", node.is_latest ? "latest" : "", branchText]
+        .filter(Boolean)
+        .join(" · ");
+      const created = node.created_at ? node.created_at.slice(5, 16).replace("T", " ") : "";
+
+      return `
+        <g class="${classes}" transform="translate(${x}, ${y})">
+          <circle class="checkpoint-svg-dot" r="8"></circle>
+          <text class="checkpoint-svg-title" x="18" y="-2">${escapeHtml(node.name)}</text>
+          <text class="checkpoint-svg-meta" x="18" y="14">${escapeHtml(created)}${badges ? ` · ${escapeHtml(badges)}` : ""}</text>
+        </g>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="checkpoint-graph">
+      <svg class="checkpoint-graph-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
+        <defs>
+          <marker id="checkpoint-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L8,4 L0,8 z" fill="rgba(19, 33, 47, 0.36)"></path>
+          </marker>
+        </defs>
+        ${edgeMarkup}
+        ${nodeMarkup}
+      </svg>
+    </div>
+  `;
+}
+
 function filteredChallenges() {
   const needle = state.filter.trim().toLowerCase();
   if (!needle) {
@@ -138,12 +376,11 @@ function renderChallengeList() {
 
   elements.challengeList.innerHTML = items
     .map((challenge) => {
-      const solveStatusTone = challenge.solve_status === "solved" ? "ok" : "warn";
+      const statusTone = challenge.solve_status === "solved" ? "ok" : "warn";
       const badges = [
-        `<span class="chip ${solveStatusTone}">${escapeHtml(challenge.solve_status)}</span>`,
+        `<span class="chip ${statusTone}">${escapeHtml(challenge.solve_status)}</span>`,
         challenge.initialized ? `<span class="chip ok">initialized</span>` : `<span class="chip warn">not init</span>`,
         `<span class="chip">${challenge.checkpoint_count} cp</span>`,
-        `<span class="chip">${challenge.artifact_count} files</span>`,
       ].join("");
 
       return `
@@ -386,12 +623,13 @@ function renderDetail() {
     return;
   }
 
-  const { summary, checkpoints, attempts, artifacts } = state.detail;
+  const { summary, checkpoints, checkpoint_graph, attempts, artifacts } = state.detail;
+  const checkpointView = normalizeCheckpointGraph(checkpoint_graph, checkpoints);
   const previewableCount = previewablePaths(state.detail).length;
-  const solveStatusTone = summary.solve_status === "solved" ? "ok" : "warn";
+  const statusTone = summary.solve_status === "solved" ? "ok" : "warn";
 
-  const checkpointMarkup = checkpoints.length
-    ? checkpoints
+  const checkpointMarkup = checkpointView.nodes.length
+    ? checkpointView.nodes
         .map(
           (checkpoint) => `
             <div class="checkpoint-item">
@@ -419,7 +657,7 @@ function renderDetail() {
           <p class="muted">${escapeHtml(summary.path)}</p>
         </div>
         <div class="split-actions">
-          <span class="chip ${solveStatusTone}">${escapeHtml(summary.solve_status)}</span>
+          <span class="chip ${statusTone}">${escapeHtml(summary.solve_status)}</span>
         </div>
         <div class="detail-actions split-actions">
           <button id="init-challenge" class="button secondary" type="button">Init Files</button>
@@ -446,8 +684,9 @@ function renderDetail() {
         <section class="detail-card stack">
           <div class="detail-header">
             <h3>Checkpoint Control</h3>
-            <span class="chip">${checkpoints.length} saved</span>
+            <span class="chip">${checkpointView.nodes.length} saved</span>
           </div>
+          ${renderCheckpointGraph(checkpoint_graph, checkpoints)}
           <form id="checkpoint-form" class="stack">
             <label class="field">
               <span>Checkpoint name</span>
