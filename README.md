@@ -1,6 +1,6 @@
 # Amadeus
 
-Amadeus 是一个封装 Codex 的轻量级 CTF 工作台, 主要负责把题目目录、状态文档、checkpoint、执行入口和前端管理面板统一起来，让 agent 解题时有稳定的上下文和可回滚的工作流。
+一个封装 Codex 的轻量级 CTF agent, 主要负责把题目目录、状态文档、checkpoint、执行入口和前端管理面板统一起来，让 agent 解题时有稳定的上下文和可回滚的工作流。
 
 当前重点支持 pwn，同时已经预留并接入了 web、crypto、reverse、misc 的 workflow prompt。
 
@@ -18,12 +18,15 @@ Amadeus/
 
 核心文件：
 
-- `bin/amds`：Codex 启动器，负责 fetch / solve / exec 三种模式和 workflow prompt 渲染。
+- `bin/amds`：Codex 启动器，负责 fetch / solve / exec / learn 和 workflow prompt 渲染。
 - `bin/init_challenge.sh`：初始化题目目录，创建 `STATE.md`、`FACTS.md`、`metadata.json`、`.ctf-files`、`.pwnrun`、`checkpoints/`、`attempts/`。
 - `bin/checkpoint.sh`：按 `.ctf-files` 保存一次具名 checkpoint，并写入 checkpoint graph。
 - `bin/restore.sh`：从 checkpoint 恢复被跟踪文件。
 - `bin/run_pwn.sh`：pwn 题统一运行入口，支持 local / remote / patched / info。
 - `prompts/*.md`：不同题型的 agent 工作流约束。
+- `prompts/learn.md`：post-solve 反思和学习入口。
+- `prompts/learn/`：各题型的长期学习规则、反思清单和学习侧重点。
+- `prompts/learn/LEARNING_LOG.md`：每次 `amds learn` 的长期学习变更日志。
 - `templates/STATE.md`：当前阶段、下一步、失败分支、checkpoint 计划。
 - `templates/FACTS.md`：只记录已经验证的事实。
 - `webui/server.py`：零依赖 Python 后端，提供静态页面和 JSON API。
@@ -56,6 +59,14 @@ bin/amds exec https://www.nssctf.cn/problem/131
 bin/amds exec --workflow pwn https://www.nssctf.cn/problem/131
 ```
 
+对已完成或阶段性完成的题目做反思学习：
+
+```bash
+bin/amds learn baby_tcache
+bin/amds learn baby_tcache --session latest
+bin/amds learn baby_tcache --session 20260522-143012-pwn
+```
+
 本地、远程和 patched 运行 pwn exploit：
 
 ```bash
@@ -69,38 +80,77 @@ bin/run_pwn.sh challenges/baby_tcache info
 
 `bin/amds` 是对 `codex` 的薄封装，会在 Amadeus 的上级目录启动 Codex，并把题目路径、workflow prompt 和附加说明一起传入。
 
-支持模式：
+基本格式：
 
-- `solve`：默认模式，解析 `challenges/<name>`，加载 `prompts/<workflow>.md`。
-- `fetch`：只获取题面、附件、metadata 和环境信息，不进入解题。
-- `exec`：先 fetch，再根据题目类别或显式参数进入 solve。
+```bash
+bin/amds [--mode solve|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc] [--session ID|latest] <challenge|path|url> [-- codex_args...]
+```
 
-支持 workflow：
+### solve
 
-- `pwn`
-- `web`
-- `crypto`
-- `reverse`
-- `misc`
-
-常用写法：
+`solve` 解析 `challenges/<name>` 或 challenge 路径，加载对应 `prompts/<workflow>.md`。默认 workflow 是 `pwn`。
 
 ```bash
 bin/amds --mode solve --workflow pwn newnote
+bin/amds --workflow pwn newnote
+bin/amds pwn newnote
+bin/amds newnote
+```
+
+题型快捷参数：
+
+```bash
 bin/amds --web web_chal
 bin/amds --crypto crypto_chal
 bin/amds --reverse rev_chal
 bin/amds --misc misc_chal
+```
+
+常用附加参数：
+
+```bash
 bin/amds --workflow pwn newnote --append "远程地址是 node4.example:30000"
 bin/amds --workflow pwn newnote --dry-run
 bin/amds --workflow pwn newnote -- --search -m gpt-5.5
 ```
 
-兼容写法：
+### fetch
+
+`fetch` 只获取题面、附件、metadata 和环境信息，不进入解题。
 
 ```bash
-bin/amds pwn newnote
-bin/amds newnote
+bin/amds fetch https://www.nssctf.cn/problem/131
+bin/amds --mode fetch https://www.nssctf.cn/problem/131
+bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
+```
+
+### exec
+
+`exec` 先 fetch，再根据题目类别进入 solve；也可以显式指定 solve workflow。
+
+```bash
+bin/amds exec https://www.nssctf.cn/problem/131
+bin/amds --mode exec https://www.nssctf.cn/problem/131
+bin/amds exec --workflow pwn https://www.nssctf.cn/problem/131
+bin/amds --mode exec --workflow web https://example.com/challenge
+```
+
+### learn
+
+`learn` 对已完成或阶段性完成的题目做 post-solve 学习：生成或更新 `REFLECTION.md`，维护 `prompts/learn/<category>_learning.md`，并追加 `prompts/learn/LEARNING_LOG.md`。
+
+不指定 session 时，只从 challenge 目录文件学习：
+
+```bash
+bin/amds learn baby_tcache
+bin/amds --mode learn baby_tcache
+```
+
+指定 session 时，从 challenge 文件和 session 一起学习；challenge 文件仍是事实基准，session 只作为过程证据：
+
+```bash
+bin/amds learn baby_tcache --session latest
+bin/amds learn baby_tcache --session 20260522-143012-pwn
 ```
 
 fetch helper 会读取本地 `.env`，但 shell 中已经 export 的值优先级更高。敏感 cookie 只放本地环境，不提交到仓库。
@@ -292,9 +342,8 @@ libc 策略：
 ## TODO
 
 - [ ] Plan 模式：在正式 solve 前生成可审阅计划，支持用户确认后再执行。
-- [ ] subagent 集成：把 recon、动态调试、exploit 编写、writeup 整理拆成并行子任务。
+- [ ] subagent 集成
 - [ ] Checkpoint diff：前端展示 checkpoint 之间的文件差异。
 - [ ] Checkpoint branch：更明确地支持多分支路线和非线性回滚。 (一个想法是git)
 - [ ] 前端功能完善，Web日志
 - [ ] 更完整的平台抓取：扩展 NSSCTF / BUUCTF 以外的平台适配。
-

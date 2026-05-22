@@ -9,6 +9,7 @@
 
 先读：
 - `{{root_name}}/AGENTS.md`
+- `{{root_name}}/prompts/learn/crypto_learning.md`
 
 工作要求：
 1. 先运行 `{{root_name}}/bin/init_challenge.sh {{challenge_path}}`

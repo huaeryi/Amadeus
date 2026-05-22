@@ -37,6 +37,7 @@ libc 策略：
 
 先读：
 - `{{root_name}}/AGENTS.md`
+- `{{root_name}}/prompts/learn/pwn_learning.md`
 
 完成标准：
 - 基于 `exp_template.py` 编写 `exp.py`；没有模板时直接创建可复现的 `exp.py`

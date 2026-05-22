@@ -3,17 +3,21 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--append TEXT] [--mode solve|fetch|exec] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse] <challenge|path|url> [-- codex_args...]
+usage: amds [--print] [--dry-run] [--append TEXT] [--mode solve|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse] [--session ID|latest] <challenge|path|url> [-- codex_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
   amds --mode fetch https://www.nssctf.cn/problem/131
   amds --mode exec https://www.nssctf.cn/problem/131
   amds --mode exec --workflow pwn https://www.nssctf.cn/problem/131
+  amds --mode learn newnote
+  amds learn newnote --session latest
+  amds learn newnote --session 20260522-143012-pwn
   amds solve pwn newnote
   amds fetch https://www.nssctf.cn/problem/131
   amds exec https://www.nssctf.cn/problem/131
   amds exec --workflow pwn https://www.nssctf.cn/problem/131
+  amds learn newnote
   amds --workflow pwn newnote
   amds --web web_chal
   amds --crypto crypto_chal
@@ -32,6 +36,7 @@ behavior:
   - solve mode resolves the challenge under Amadeus/challenges/
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
+  - learn mode runs the post-solve learning/reflection workflow for a challenge
   - exec mode accepts --workflow to force the solve workflow after fetch
   - loads a workflow prompt template, defaulting to pwn for solve mode
   - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse
@@ -81,19 +86,27 @@ render_template() {
     local template_path="$1"
     local challenge_path="$2"
     local target_url="${3:-}"
+    local session_id="${4:-}"
+    local session_path="${5:-}"
     local output
     local escaped_challenge_path
     local escaped_root_name
     local escaped_target_url
+    local escaped_session_id
+    local escaped_session_path
 
     [ -f "$template_path" ] || die "workflow template not found: $template_path"
     escaped_challenge_path="$(escape_sed_replacement "$challenge_path")"
     escaped_root_name="$(escape_sed_replacement "$root_name")"
     escaped_target_url="$(escape_sed_replacement "$target_url")"
+    escaped_session_id="$(escape_sed_replacement "$session_id")"
+    escaped_session_path="$(escape_sed_replacement "$session_path")"
     output="$(sed \
         -e "s|{{challenge_path}}|${escaped_challenge_path}|g" \
         -e "s|{{root_name}}|${escaped_root_name}|g" \
         -e "s|{{target_url}}|${escaped_target_url}|g" \
+        -e "s|{{session}}|${escaped_session_id}|g" \
+        -e "s|{{session_path}}|${escaped_session_path}|g" \
         "$template_path")"
     printf '%s\n' "$output"
 }
@@ -172,9 +185,11 @@ legacy_prompt_dir="${root_dir}/pts"
 print_prompt=0
 dry_run=0
 mode="solve"
+display_mode="solve"
 workflow="pwn"
 workflow_explicit=0
 target_input=""
+session_input=""
 declare -a append_lines=()
 declare -a codex_args=()
 
@@ -199,10 +214,17 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --mode|-m)
-            [ $# -ge 2 ] || die "--mode requires solve, fetch, or exec"
+            [ $# -ge 2 ] || die "--mode requires solve, fetch, exec, or learn"
             case "$2" in
                 solve|fetch|exec)
                     mode="$2"
+                    display_mode="$2"
+                    ;;
+                learn)
+                    mode="solve"
+                    display_mode="learn"
+                    workflow="learn"
+                    workflow_explicit=1
                     ;;
                 *)
                     die "unknown mode: $2"
@@ -220,6 +242,11 @@ while [ $# -gt 0 ]; do
             append_lines+=("$2")
             shift 2
             ;;
+        --session)
+            [ $# -ge 2 ] || die "--session requires an id or latest"
+            session_input="$2"
+            shift 2
+            ;;
         --)
             shift
             codex_args=("$@")
@@ -233,6 +260,15 @@ while [ $# -gt 0 ]; do
                 case "$1" in
                     solve|fetch|exec)
                         mode="$1"
+                        display_mode="$1"
+                        shift
+                        continue
+                        ;;
+                    learn)
+                        mode="solve"
+                        display_mode="learn"
+                        workflow="learn"
+                        workflow_explicit=1
                         shift
                         continue
                         ;;
@@ -258,6 +294,8 @@ done
 
 challenge_prompt_path=""
 target_url=""
+session_prompt_value=""
+session_prompt_path=""
 
 case "$mode" in
     solve)
@@ -265,6 +303,18 @@ case "$mode" in
         challenge_rel="${challenge_dir#${root_dir}/}"
         challenge_prompt_path="${root_name}/${challenge_rel}"
         template_path="$(resolve_template "$workflow")"
+        if [ -n "$session_input" ]; then
+            if [ "$display_mode" != "learn" ]; then
+                die "--session is only supported with learn mode"
+            fi
+            case "$session_input" in
+                /*|*/*|.|..)
+                    die "--session must be a session id or latest, not a path: $session_input"
+                    ;;
+            esac
+            session_prompt_value="$session_input"
+            session_prompt_path="${challenge_prompt_path}/.amadeus/sessions/${session_input}"
+        fi
         ;;
     fetch)
         target_url="$target_input"
@@ -355,7 +405,7 @@ if [ "$mode" = "exec" ]; then
     exit 0
 fi
 
-mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url")
+mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
 
 if [ ${#append_lines[@]} -gt 0 ]; then
     prompt_lines+=("${append_lines[@]}")
@@ -386,10 +436,14 @@ codex_cmd+=("$prompt")
 
 if [ "$dry_run" = "1" ]; then
     printf 'workspace: %s\n' "$workspace_parent"
-    printf 'mode: %s\n' "$mode"
+    printf 'mode: %s\n' "$display_mode"
     printf 'workflow: %s\n' "$workflow"
     if [ "$mode" = "solve" ]; then
         printf 'challenge: %s\n' "$challenge_prompt_path"
+        if [ -n "$session_prompt_value" ]; then
+            printf 'session: %s\n' "$session_prompt_value"
+            printf 'session_path: %s\n' "$session_prompt_path"
+        fi
     else
         printf 'url: %s\n' "$target_url"
     fi
