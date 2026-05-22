@@ -89,7 +89,7 @@ function preferredPreviewPath(detail) {
     return state.activeFilePath;
   }
 
-  const preferred = ["exp.py", "wp.md", "exp_template.py", "README.md"];
+  const preferred = ["exp.py", "solve.py", "wp.md", "metadata.json", "exp_template.py", "README.md"];
   for (const name of preferred) {
     if (paths.includes(name)) {
       return name;
@@ -357,7 +357,18 @@ function filteredChallenges() {
   if (!needle) {
     return state.challenges;
   }
-  return state.challenges.filter((challenge) => challenge.name.toLowerCase().includes(needle));
+  return state.challenges.filter((challenge) => {
+    const haystack = [
+      challenge.name,
+      challenge.title,
+      challenge.challenge_type,
+      ...(challenge.tags || []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(needle);
+  });
 }
 
 function renderChallengeList() {
@@ -377,7 +388,9 @@ function renderChallengeList() {
   elements.challengeList.innerHTML = items
     .map((challenge) => {
       const statusTone = challenge.solve_status === "solved" ? "ok" : "warn";
+      const challengeType = challenge.challenge_type || "unknown";
       const badges = [
+        `<span class="chip type">${escapeHtml(challengeType)}</span>`,
         `<span class="chip ${statusTone}">${escapeHtml(challenge.solve_status)}</span>`,
         challenge.initialized ? `<span class="chip ok">initialized</span>` : `<span class="chip warn">not init</span>`,
         `<span class="chip">${challenge.checkpoint_count} cp</span>`,
@@ -627,6 +640,7 @@ function renderDetail() {
   const checkpointView = normalizeCheckpointGraph(checkpoint_graph, checkpoints);
   const previewableCount = previewablePaths(state.detail).length;
   const statusTone = summary.solve_status === "solved" ? "ok" : "warn";
+  const challengeType = summary.challenge_type || "unknown";
 
   const checkpointMarkup = checkpointView.nodes.length
     ? checkpointView.nodes
@@ -657,6 +671,7 @@ function renderDetail() {
           <p class="muted">${escapeHtml(summary.path)}</p>
         </div>
         <div class="split-actions">
+          <span class="chip type">${escapeHtml(challengeType)}</span>
           <span class="chip ${statusTone}">${escapeHtml(summary.solve_status)}</span>
         </div>
         <div class="detail-actions split-actions">
@@ -666,6 +681,7 @@ function renderDetail() {
       </div>
       <div class="stats-grid">
         <div class="stat"><span class="meta">Checkpoints</span><strong>${summary.checkpoint_count}</strong></div>
+        <div class="stat"><span class="meta">Type</span><strong>${escapeHtml(challengeType)}</strong></div>
         <div class="stat"><span class="meta">Attempts</span><strong>${summary.attempt_count}</strong></div>
         <div class="stat"><span class="meta">Artifacts</span><strong>${summary.artifact_count}</strong></div>
         <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>

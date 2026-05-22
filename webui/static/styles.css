@@ -374,6 +374,13 @@ textarea {
   color: var(--danger);
 }
 
+.chip.type {
+  border-color: rgba(34, 85, 170, 0.18);
+  background: rgba(34, 85, 170, 0.08);
+  color: #1d4f91;
+  text-transform: lowercase;
+}
+
 .main {
   display: flex;
   flex-direction: column;

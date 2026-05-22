@@ -4,6 +4,7 @@
 exp.py
 exp_template.py
 wp.md
+metadata.json
 STATE.md
 FACTS.md
 .pwnrun

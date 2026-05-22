@@ -19,7 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR / "webui" / "static"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
-CORE_DOCUMENTS = ("STATE.md", "FACTS.md", ".ctf-files", ".pwnrun")
+CORE_DOCUMENTS = ("STATE.md", "FACTS.md", "metadata.json", ".ctf-files", ".pwnrun")
 CHALLENGE_NAME_RE = re.compile(r"^[^/\\\x00]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
 BINARY_PREVIEW_LIMIT = 4096
@@ -75,6 +75,78 @@ def read_state_stage(path: Path) -> str:
         return stripped
 
     return "unknown"
+
+
+def parse_markdown_field(text: str, field_name: str) -> str:
+    pattern = re.compile(rf"^- {re.escape(field_name)}:\s*(.*)$", re.MULTILINE)
+    match = pattern.search(text)
+    return match.group(1).strip() if match else ""
+
+
+def normalize_challenge_type(value: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized or normalized.startswith("-"):
+        return ""
+    aliases = {
+        "pwn": "pwn",
+        "web": "web",
+        "reverse": "reverse",
+        "re": "reverse",
+        "rev": "reverse",
+        "crypto": "crypto",
+        "misc": "misc",
+        "mobile": "mobile",
+        "forensics": "forensics",
+        "forensic": "forensics",
+        "osint": "osint",
+        "malware": "malware",
+    }
+    return aliases.get(normalized, "")
+
+
+def read_challenge_metadata(path: Path) -> dict[str, Any]:
+    metadata_path = path / "metadata.json"
+    metadata: dict[str, Any] = {}
+    if metadata_path.exists():
+        try:
+            parsed = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                metadata = parsed
+        except json.JSONDecodeError:
+            metadata = {}
+
+    description_text = read_text_if_exists(path / "description.md")
+    state_text = read_text_if_exists(path / "STATE.md")
+    facts_text = read_text_if_exists(path / "FACTS.md")
+
+    title = str(metadata.get("title") or "").strip()
+    if not title:
+        first_heading = re.search(r"^#\s+(.+)$", description_text, re.MULTILINE)
+        title = first_heading.group(1).strip() if first_heading else path.name
+
+    challenge_type = str(metadata.get("challenge_type") or metadata.get("category") or "").strip()
+    if not challenge_type:
+        challenge_type = parse_markdown_field(description_text, "Category")
+    if not challenge_type:
+        challenge_type = parse_markdown_field(facts_text, "category")
+    if not challenge_type:
+        match = re.search(r"^- challenge type:\s*(.+)$", state_text, re.MULTILINE)
+        challenge_type = match.group(1).strip() if match else ""
+    challenge_type = normalize_challenge_type(challenge_type)
+
+    tags = metadata.get("tags", [])
+    if not isinstance(tags, list):
+        tags = [str(tags)]
+    if not tags:
+        raw_tags = parse_markdown_field(description_text, "Tags")
+        tags = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+
+    return {
+        **metadata,
+        "title": title,
+        "challenge_type": challenge_type,
+        "tags": tags,
+    }
 
 
 def derive_solve_status(stage: str) -> str:
@@ -418,6 +490,7 @@ def challenge_summary(path: Path) -> dict[str, Any]:
     attempts = collect_attempts(path)
     state_stage = read_state_stage(path)
     solve_status = derive_solve_status(state_stage)
+    metadata = read_challenge_metadata(path)
     core_files = {name: (path / name).exists() for name in CORE_DOCUMENTS}
     updated_at = isoformat_from_timestamp(path.stat().st_mtime)
     for artifact in artifacts:
@@ -425,7 +498,11 @@ def challenge_summary(path: Path) -> dict[str, Any]:
 
     return {
         "name": path.name,
+        "title": metadata.get("title") or path.name,
         "path": str(path.relative_to(ROOT_DIR)),
+        "metadata": metadata,
+        "challenge_type": metadata.get("challenge_type", ""),
+        "tags": metadata.get("tags", []),
         "initialized": (path / "STATE.md").exists() and (path / "FACTS.md").exists(),
         "state_stage": state_stage,
         "solve_status": solve_status,

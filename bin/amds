@@ -9,9 +9,11 @@ examples:
   amds --mode solve --workflow pwn newnote
   amds --mode fetch https://www.nssctf.cn/problem/131
   amds --mode exec https://www.nssctf.cn/problem/131
+  amds --mode exec --workflow pwn https://www.nssctf.cn/problem/131
   amds solve pwn newnote
   amds fetch https://www.nssctf.cn/problem/131
   amds exec https://www.nssctf.cn/problem/131
+  amds exec --workflow pwn https://www.nssctf.cn/problem/131
   amds --workflow pwn newnote
   amds --web web_chal
   amds --crypto crypto_chal
@@ -30,6 +32,7 @@ behavior:
   - solve mode resolves the challenge under Amadeus/challenges/
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
+  - exec mode accepts --workflow to force the solve workflow after fetch
   - loads a workflow prompt template, defaulting to pwn for solve mode
   - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse
   - launches codex with the current CLI equivalent of "codex --yolo"
@@ -276,9 +279,16 @@ case "$mode" in
         fi
 
         if [ "$dry_run" = "1" ] || [ "$print_prompt" = "1" ]; then
+            if [ "$workflow_explicit" = "1" ]; then
+                dry_solve_workflow="$workflow"
+            else
+                dry_solve_workflow="auto"
+            fi
+
             printf 'workspace: %s\n' "$workspace_parent"
             printf 'mode: exec\n'
             printf 'url: %s\n' "$target_url"
+            printf 'solve_workflow: %s\n' "$dry_solve_workflow"
             printf 'fetch_command:'
             for arg in "${fetch_cmd[@]}"; do
                 printf ' %q' "$arg"
@@ -308,7 +318,11 @@ case "$mode" in
                 done
                 printf '\n'
             else
-                printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges\n' "$root_name"
+                if [ "$workflow_explicit" = "1" ]; then
+                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then %q --mode solve --workflow %q <challenge_dir>\n' "$root_name" "$0" "$workflow"
+                else
+                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then infer workflow from description.md/FACTS.md\n' "$root_name"
+                fi
             fi
             exit 0
         fi

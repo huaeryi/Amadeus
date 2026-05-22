@@ -7,6 +7,7 @@ This tool intentionally avoids writeup/solution APIs. It only requests:
 - the returned attachment URL, if any
 
 Cookie, when needed, is read from NSSCTF_COOKIE and is never written to disk.
+ROOT/.env is loaded when present; existing shell environment variables win.
 """
 
 from __future__ import annotations
@@ -49,6 +50,25 @@ CATEGORY_NAMES = {
 
 class FetchError(RuntimeError):
     pass
+
+
+def load_dotenv(path: Path = ROOT / ".env") -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        if key in os.environ:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        os.environ[key] = value
 
 
 def parse_problem_id(value: str) -> str:
@@ -119,6 +139,27 @@ def category_name(problem: dict[str, Any]) -> str:
     if category is None:
         return ""
     return str(category)
+
+
+def normalize_challenge_type(value: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized or normalized.startswith("-"):
+        return ""
+    aliases = {
+        "pwn": "pwn",
+        "web": "web",
+        "reverse": "reverse",
+        "re": "reverse",
+        "rev": "reverse",
+        "crypto": "crypto",
+        "misc": "misc",
+        "mobile": "mobile",
+        "forensics": "forensics",
+        "forensic": "forensics",
+        "osint": "osint",
+        "malware": "malware",
+    }
+    return aliases.get(normalized, "")
 
 
 def sha256_file(path: Path) -> str:
@@ -297,6 +338,25 @@ def description_markdown(problem_id: str, problem: dict[str, Any], source_url: s
     return "\n".join(lines) + "\n"
 
 
+def challenge_metadata(problem_id: str, problem: dict[str, Any], source_url: str, files: list[Path]) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "title": str(problem.get("title") or f"NSSCTF {problem_id}"),
+        "source": source_url,
+        "platform": "NSSCTF",
+        "problem_id": problem_id,
+        "challenge_type": normalize_challenge_type(category_name(problem)),
+        "tags": tag_names(problem),
+        "points": problem.get("point"),
+        "level": problem.get("level", ""),
+        "docker": problem.get("docker"),
+        "annex": problem.get("annex"),
+        "downloaded_at": time.strftime("%Y-%m-%d %H:%M:%S %z"),
+        "description": str(problem.get("desc") or problem.get("description") or "").strip(),
+        "local_files": [path.name for path in files],
+    }
+
+
 def facts_markdown(
     problem_id: str,
     problem: dict[str, Any],
@@ -409,6 +469,8 @@ def state_markdown(problem: dict[str, Any], main_binary: Path | None, attachment
 
 
 def main() -> int:
+    load_dotenv()
+
     parser = argparse.ArgumentParser(description="Fetch NSSCTF challenge into Amadeus/challenges")
     parser.add_argument("url_or_id", help="NSSCTF problem URL or numeric id")
     parser.add_argument("--overwrite", action="store_true", help="overwrite generated markdown/config files")
@@ -461,6 +523,11 @@ def main() -> int:
         args.overwrite,
     )
     write_text_if_allowed(
+        challenge_dir / "metadata.json",
+        json.dumps(challenge_metadata(problem_id, problem, source_url, local_files), indent=2, ensure_ascii=False) + "\n",
+        args.overwrite,
+    )
+    write_text_if_allowed(
         challenge_dir / "FACTS.md",
         facts_markdown(problem_id, problem, local_files, main_binary, checksec_lines, attachment_error),
         args.overwrite,
@@ -470,8 +537,9 @@ def main() -> int:
     ctf_files = challenge_dir / ".ctf-files"
     if ctf_files.exists():
         text = ctf_files.read_text(encoding="utf-8")
-        if "description.md" not in text:
-            ctf_files.write_text(text.rstrip() + "\ndescription.md\n", encoding="utf-8")
+        additions = [name for name in ("description.md", "metadata.json") if name not in text]
+        if additions:
+            ctf_files.write_text(text.rstrip() + "\n" + "\n".join(additions) + "\n", encoding="utf-8")
 
     if args.print_dir:
         print(challenge_dir)

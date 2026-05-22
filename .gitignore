@@ -5,6 +5,9 @@ __pycache__/
 # OS/editor noise
 .DS_Store
 
+# Local secrets
+.env
+
 # Local challenge materials and solve state
 challenges/*
 !challenges/AGENTS.md

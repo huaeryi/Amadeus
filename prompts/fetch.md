@@ -11,7 +11,10 @@
 - 如果 URL 属于 NSSCTF，例如 `https://www.nssctf.cn/problem/<id>`，优先直接运行 `{{root_name}}/script/fetch_nssctf.py '{{target_url}}'`
 - 如果 NSSCTF 附件需要登录态，使用环境变量 `NSSCTF_COOKIE` 传入 Cookie，例如 `NSSCTF_COOKIE='...' {{root_name}}/script/fetch_nssctf.py '{{target_url}}'`
 - NSSCTF 脚本执行后，检查输出、challenge 目录、`description.md`、`FACTS.md`、`STATE.md` 和附件文件；缺什么再手工补，不要重复实现脚本已有逻辑
-- 如果不是 NSSCTF URL，按下面通用流程由 agent 自己分析页面和附件下载方式
+- 如果 URL 属于 BUUCTF/BUUOJ，例如 `https://buuoj.cn/challenges#<title>`，优先直接运行 `{{root_name}}/script/fetch_buuctf.py '{{target_url}}'`
+- BUUCTF 通常需要登录态才能读取 challenge API 和附件；使用环境变量 `BUUCTF_COOKIE` 或 `BUUOJ_COOKIE` 传入 Cookie，例如 `BUUCTF_COOKIE='...' {{root_name}}/script/fetch_buuctf.py '{{target_url}}'`
+- BUUCTF 脚本执行后，检查输出、challenge 目录、`description.md`、`FACTS.md`、`STATE.md` 和附件文件；如果提示缺少登录态或附件失败，把失败状态保留在文件中，不要伪造成功
+- 如果不是 NSSCTF/BUUCTF URL，按下面通用流程由 agent 自己分析页面和附件下载方式
 
 工作要求：
 1. 只抓取题面、附件、公开元数据和题目运行环境信息

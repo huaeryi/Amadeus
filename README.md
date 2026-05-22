@@ -1,259 +1,211 @@
 # Amadeus
 
-Amadeus is a lightweight CTF workspace for Codex-driven solving.
+Amadeus 是一个封装 Codex 的轻量级 CTF 工作台, 主要负责把题目目录、状态文档、checkpoint、执行入口和前端管理面板统一起来，让 agent 解题时有稳定的上下文和可回滚的工作流。
 
-It gives you:
+当前重点支持 pwn，同时已经预留并接入了 web、crypto、reverse、misc 的 workflow prompt。
 
-- file-based solve state for each challenge
-- checkpoints and rollback for risky exploit branches
-- a unified `run_pwn.sh` entrypoint for local, remote, and patched runs
-- a small Web UI for challenge management on port `9999`
+## 整体结构
 
-Amadeus is meant to work with Codex skills such as `ctf-pwn`, not replace them.
+```text
+Amadeus/
+├── bin/                 # 命令行入口和工作流脚本
+├── prompts/             # amds 注入给 Codex 的 workflow prompt
+├── templates/           # 初始化题目时复制的状态模板
+├── script/              # 平台题目抓取辅助脚本
+├── webui/               # Challenge Console 前端和 Python API 服务
+└── challenges/          # 每道题的独立工作目录
+```
 
-## Layout
+核心文件：
 
-- `bin/init_challenge.sh`: create `STATE.md`, `FACTS.md`, `.ctf-files`, `.pwnrun`, `checkpoints/`, and `attempts/`
-- `bin/checkpoint.sh`: snapshot tracked files into a named checkpoint
-- `bin/restore.sh`: restore tracked files from a checkpoint
-- `bin/run_pwn.sh`: unified local / remote / patched execution entrypoint
-- `bin/amds`: launch Codex with a workflow-specific Amadeus prompt
-- `prompts/`: workflow prompt templates such as `pwn.md`
-- `templates/`: default files copied into challenge directories
-- `challenges/`: challenge folders such as `challenges/baby_tcache`
-- `webui/`: challenge management frontend and backend
+- `bin/amds`：Codex 启动器，负责 fetch / solve / exec 三种模式和 workflow prompt 渲染。
+- `bin/init_challenge.sh`：初始化题目目录，创建 `STATE.md`、`FACTS.md`、`metadata.json`、`.ctf-files`、`.pwnrun`、`checkpoints/`、`attempts/`。
+- `bin/checkpoint.sh`：按 `.ctf-files` 保存一次具名 checkpoint，并写入 checkpoint graph。
+- `bin/restore.sh`：从 checkpoint 恢复被跟踪文件。
+- `bin/run_pwn.sh`：pwn 题统一运行入口，支持 local / remote / patched / info。
+- `prompts/*.md`：不同题型的 agent 工作流约束。
+- `templates/STATE.md`：当前阶段、下一步、失败分支、checkpoint 计划。
+- `templates/FACTS.md`：只记录已经验证的事实。
+- `webui/server.py`：零依赖 Python 后端，提供静态页面和 JSON API。
 
-## Quick Start
+## 快速开始
 
-Initialize a challenge:
+初始化题目：
 
 ```bash
 bin/init_challenge.sh challenges/baby_tcache
 ```
 
-Run a local exploit:
-
-```bash
-bin/run_pwn.sh challenges/baby_tcache
-```
-
-Run against a remote service:
-
-```bash
-bin/run_pwn.sh challenges/baby_tcache remote 127.0.0.1 5000
-```
-
-Run with the patched binary / provided loader setup:
-
-```bash
-bin/run_pwn.sh challenges/baby_tcache patched
-```
-
-Launch a standard Codex pwn-solving session:
+启动 pwn 解题工作流：
 
 ```bash
 bin/amds --workflow pwn baby_tcache
 ```
 
-Create and restore checkpoints:
+抓题但不解题：
 
 ```bash
-bin/checkpoint.sh env-ok challenges/baby_tcache
-bin/checkpoint.sh leak-confirmed challenges/baby_tcache
-bin/restore.sh latest challenges/baby_tcache
-bin/restore.sh 20260519-120000-leak-confirmed challenges/baby_tcache
+bin/amds fetch https://www.nssctf.cn/problem/131
+bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
-## Codex Shortcut
+抓题后自动进入 solve：
 
-`bin/amds` is a thin wrapper around `codex` for workflow-specific Amadeus prompts.
+```bash
+bin/amds exec https://www.nssctf.cn/problem/131
+bin/amds exec --workflow pwn https://www.nssctf.cn/problem/131
+```
 
-In `solve` mode, it resolves challenge names under `challenges/`, loads `prompts/<workflow>.md`, and builds the final prompt for Codex.
+本地、远程和 patched 运行 pwn exploit：
 
-In `fetch` mode, it accepts a challenge URL and loads `prompts/fetch.md`. NSSCTF URLs are handled by the local helper first; other platforms are handled by the agent using the generic fetch prompt.
+```bash
+bin/run_pwn.sh challenges/baby_tcache
+bin/run_pwn.sh challenges/baby_tcache remote 127.0.0.1 5000
+bin/run_pwn.sh challenges/baby_tcache patched
+bin/run_pwn.sh challenges/baby_tcache info
+```
 
-`exec` mode chains fetch and solve: it first runs the fetch flow for the URL, then resolves the fetched challenge directory and starts the matching solve workflow.
+## amds 工作流
 
-Current workflows:
+`bin/amds` 是对 `codex` 的薄封装，会在 Amadeus 的上级目录启动 Codex，并把题目路径、workflow prompt 和附加说明一起传入。
+
+支持模式：
+
+- `solve`：默认模式，解析 `challenges/<name>`，加载 `prompts/<workflow>.md`。
+- `fetch`：只获取题面、附件、metadata 和环境信息，不进入解题。
+- `exec`：先 fetch，再根据题目类别或显式参数进入 solve。
+
+支持 workflow：
 
 - `pwn`
 - `web`
 - `crypto`
-- `misc`
 - `reverse`
+- `misc`
 
-Examples:
+常用写法：
 
 ```bash
 bin/amds --mode solve --workflow pwn newnote
-bin/amds --mode fetch https://www.nssctf.cn/problem/131
-bin/amds --mode exec https://www.nssctf.cn/problem/131
-bin/amds fetch https://www.nssctf.cn/problem/131
-bin/amds exec https://www.nssctf.cn/problem/131
-bin/amds --workflow pwn newnote
-bin/amds --workflow web web_chal
 bin/amds --web web_chal
 bin/amds --crypto crypto_chal
-bin/amds --misc misc_chal
 bin/amds --reverse rev_chal
-bin/amds --workflow pwn challenges/newnote
-bin/amds --workflow pwn newnote --append "远程地址是 http://node4.anna.nssctf.cn:21280/"
+bin/amds --misc misc_chal
+bin/amds --workflow pwn newnote --append "远程地址是 node4.example:30000"
 bin/amds --workflow pwn newnote --dry-run
 bin/amds --workflow pwn newnote -- --search -m gpt-5.5
 ```
 
-For compatibility, `bin/amds pwn <challenge>` and `bin/amds <challenge>` still default to `pwn`.
-
-Fetch mode:
-
-- `bin/amds fetch <url>` starts a Codex fetch-only session.
-- For `https://www.nssctf.cn/problem/<id>`, the generated prompt tells Codex to run `script/fetch_nssctf.py <url>` first.
-- For non-NSSCTF URLs, Codex follows the generic fetch workflow in `prompts/fetch.md`.
-- Fetch mode should only save题面、附件、metadata and environment info; it should not solve the challenge.
-
-Exec mode:
-
-- `bin/amds exec <url>` runs fetch first, then solve on the fetched challenge directory.
-- For fetchable URLs, it infers the solve workflow from the fetched `description.md` or `FACTS.md` category when possible.
-- You can still force a workflow with `--workflow` or `--pwn` / `--web` / `--crypto` / `--misc` / `--reverse`.
-
-For NSSCTF URLs, the direct helper can also be run manually:
+兼容写法：
 
 ```bash
-script/fetch_nssctf.py https://www.nssctf.cn/problem/131
+bin/amds pwn newnote
+bin/amds newnote
+```
+
+fetch helper 会读取本地 `.env`，但 shell 中已经 export 的值优先级更高。敏感 cookie 只放本地环境，不提交到仓库。
+
+```bash
 NSSCTF_COOKIE='...' script/fetch_nssctf.py https://www.nssctf.cn/problem/131
+BUUCTF_COOKIE='...' script/fetch_buuctf.py 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
-`NSSCTF_COOKIE` is only read from the environment. The helper only fetches题面 and附件 APIs, not writeups, public solutions, or exploit repositories.
+## Challenge 目录约定
 
-The installed Codex CLI on this workspace does not expose a literal `--yolo` flag, so `bin/amds`
-uses the current equivalent:
+每个题目目录都是一个独立 workspace，典型结构如下：
+
+```text
+challenges/baby_tcache/
+├── STATE.md             # 解题状态和下一步
+├── FACTS.md             # 已确认事实
+├── metadata.json        # 平台、题目、标签、附件信息
+├── .ctf-files           # checkpoint 跟踪清单
+├── .pwnrun              # pwn 运行配置
+├── exp.py               # 最终 exploit 或 solve 脚本
+├── wp.md                # 最终 writeup
+├── attempts/            # 失败分支和临时路线记录
+└── checkpoints/         # checkpoint 快照和图数据
+```
+
+约定：
+
+- `FACTS.md` 只写已经被文件、运行结果、调试器或 exploit 输出验证的事实。
+- `STATE.md` 写当前判断、下一步、候选路线、失败路线和开放问题。
+- `.ctf-files` 每行一个相对文件路径，checkpoint 只保存这些文件。
+- `attempts/` 用于记录失败路线，避免 agent 在脏状态上反复修补。
+- pwn 题优先让 `exp.py` 读取 `run_pwn.sh` 导出的 `PWN_*` 环境变量。
+
+## Checkpoint
+
+Checkpoint 是这次工作流的核心增量之一。它用于保存已经确认的稳定里程碑，方便在尝试高风险利用路线、切换思路或适配远程前回滚。
+
+创建 checkpoint：
 
 ```bash
-codex --dangerously-bypass-approvals-and-sandbox
+bin/checkpoint.sh env-ok challenges/baby_tcache
+bin/checkpoint.sh primitive-confirmed challenges/baby_tcache
+bin/checkpoint.sh libc-base-confirmed challenges/baby_tcache
 ```
 
-If you want to call it as `amds`, add `Amadeus/bin` to your `PATH`.
+恢复 checkpoint：
 
-## Pwn Workflow
+```bash
+bin/restore.sh latest challenges/baby_tcache
+bin/restore.sh 20260519-120000-primitive-confirmed challenges/baby_tcache
+```
 
-When solving a pwn challenge under `challenges/`, read these first:
+实现细节：
 
-1. `AGENTS.md`
-2. `prompts/pwn.md` when using or modifying the `amds` pwn workflow
+- 每个 checkpoint 位于 `checkpoints/<timestamp>-<name>/`。
+- `files/` 下保存 `.ctf-files` 中列出的文件快照。
+- `META.txt` 保存名称、创建时间、父 checkpoint 等元数据。
+- `checkpoints/latest` 指向最新 checkpoint。
+- `checkpoints/.amadeus-head` 记录当前 head。
+- `checkpoints/.checkpoint-graph.json` 记录 checkpoint 节点和父子关系，供前端画图。
 
-The intended loop is:
+推荐策略：
 
-1. Initialize the challenge if `STATE.md` and `FACTS.md` do not exist yet.
-2. Inspect the binary, patched binary, `libc`, `ld`, and `exp_template.py` if present.
-3. Record confirmed facts in `FACTS.md`.
-4. Record current stage, primitive, next step, checkpoint plan, rejected branches, and open questions in `STATE.md`.
-5. Use `bin/run_pwn.sh <challenge_dir> [local|remote|patched]` as the standard entrypoint.
-6. Checkpoint only after a real milestone such as `primitive-confirmed` or `libc-base-confirmed`.
-7. Produce `exp.py` and `wp.md` as final outputs.
+- checkpoint 是回滚锚点，不是 autosave。
+- 名称按已经确认的事实或能力命名，比如 `env-ok`、`offset-confirmed`、`canary-leaked`、`arb-write-confirmed`、`orw-working`、`flag-confirmed`。
+- 简单栈溢出或格式化字符串题通常 3 到 4 个 checkpoint。
+- 中等栈、格式化字符串或堆题通常 4 到 6 个 checkpoint。
+- 复杂 heap、seccomp、sandbox 或 kernel 题通常 5 到 8 个 checkpoint。
+- 在第一次大型 heap metadata corruption、`setcontext`、FSOP、ret2dlresolve、SROP、切换 exploit 路线、适配远程前创建 checkpoint。
 
-Add extra tracked files by editing `.ctf-files` inside the challenge directory.
-Keep it to files, not directories.
+## 前端显示
 
-## Checkpoint Strategy
+前端是 `webui/` 下的 Challenge Console，定位是题目管理和状态可视化，不是完整 IDE。
 
-Use checkpoints as rollback anchors, not autosaves.
-
-- Simple stack or format-string challenge: usually 3 to 4 checkpoints.
-- Medium stack, format-string, or heap challenge: usually 4 to 6 checkpoints.
-- Complex heap, seccomp, sandbox, or kernel challenge: usually 5 to 8 checkpoints.
-
-Name checkpoints after confirmed facts or working capabilities:
-
-- `env-ok`
-- `primitive-confirmed`
-- `offset-confirmed`
-- `pie-leaked`
-- `canary-leaked`
-- `libc-base-confirmed`
-- `arb-read-confirmed`
-- `arb-write-confirmed`
-- `rop-ready`
-- `setcontext-ready`
-- `fsop-ready`
-- `orw-working`
-- `flag-confirmed`
-
-Recommended cadence by challenge type:
-
-- stack: `env-ok` -> `offset-confirmed` -> `leak-confirmed` or `libc-base-confirmed` -> `rop-working` or `orw-working` -> `flag-confirmed`
-- format string: `env-ok` -> `fmt-offset-confirmed` -> `leak-confirmed` -> `write-confirmed` -> `flag-confirmed`
-- heap: `env-ok` -> `heap-layout-confirmed` -> `heap-base-confirmed` and/or `libc-base-confirmed` -> `arb-write-confirmed` -> `pivot-ready`, `setcontext-ready`, or `fsop-ready` -> `orw-working` -> `flag-confirmed`
-- seccomp or sandboxed userland: `env-ok` -> `seccomp-profile-confirmed` -> `primitive-confirmed` -> `openat-orw-working` or `mmap-bypass-working` -> `flag-confirmed`
-
-Always checkpoint before risky pivots such as:
-
-- the first large heap metadata corruption
-- the first `setcontext`, FSOP, ret2dlresolve, sigreturn, or `house-of-*` attempt
-- switching exploit paths
-- adapting a locally working exploit to remote
-
-## Web UI
-
-The Web UI is a zero-dependency Python service that serves a small frontend plus JSON APIs.
-
-Start it with:
+启动：
 
 ```bash
 python3 webui/server.py
 ```
 
-or:
+或：
 
 ```bash
 ./webui/start.sh
 ```
 
-Default bind:
-
-- host: `0.0.0.0`
-- port: `9999`
-
-Open:
+默认地址：
 
 ```text
 http://127.0.0.1:9999/
 ```
 
-If you want it in the background:
+当前前端能力：
 
-```bash
-nohup python3 webui/server.py --host 0.0.0.0 --port 9999 >/tmp/amadeus-webui.log 2>&1 &
-```
+- 题目列表、搜索和基础状态展示。
+- 创建题目并自动初始化。
+- 编辑 `STATE.md`、`FACTS.md`、`metadata.json`、`.ctf-files`、`.pwnrun`。
+- 展示 `run_pwn.sh info` 的解析结果。
+- 创建和恢复 checkpoint。
+- 显示 checkpoint graph，包括 latest / head 标记。
+- 预览顶层文件、`attempts/` 记录和二进制 hex dump。
+- 通过文件浏览器查看题目目录中的嵌套文件。
 
-### Frontend Usage
-
-The current frontend is challenge-management first.
-
-It supports:
-
-- challenge list and filtering
-- create + initialize a challenge
-- edit `STATE.md`, `FACTS.md`, `.ctf-files`, and `.pwnrun`
-- view `run_pwn.sh info` output
-- create and restore checkpoints
-- preview top-level files such as `exp.py`, `wp.md`, `exp_template.py`
-- preview `attempts/*.md`
-- preview binary files as a hex dump
-
-Typical usage:
-
-1. Open the page and pick a challenge from the left sidebar.
-2. Use `Init Files` if the challenge has not been initialized yet.
-3. Edit the core docs in the `Core Documents` panel and save them in place.
-4. Use `Run Info` to confirm the resolved binary, `libc`, `ld`, host, and port.
-5. Use `View` in `Top-Level Files` to inspect `exp.py`, `wp.md`, or other text files.
-6. Create checkpoints before risky exploit pivots.
-7. Restore a checkpoint if a branch goes bad.
-
-### API Notes
-
-Useful routes:
+主要 API：
 
 - `GET /api/challenges`
 - `GET /api/challenges/<name>`
@@ -265,56 +217,49 @@ Useful routes:
 - `POST /api/challenges/<name>/restore`
 - `GET /api/challenges/<name>/file?path=exp.py`
 
-## Skills
+后台运行示例：
 
-Amadeus is most useful when paired with Codex skills.
+```bash
+nohup python3 webui/server.py --host 0.0.0.0 --port 9999 >/tmp/amadeus-webui.log 2>&1 &
+```
 
-### Required for pwn work
+## Skills 和 MCP
 
-- `ctf-pwn`
+Amadeus 的设计前提是和 Codex skills / MCP 配合使用。仓库本身只负责工作流和文件组织，具体解题能力由 skills、调试器和本地工具提供。
 
-Use `ctf-pwn` for:
+推荐 skills：
 
-- stack overflow
-- format string
-- heap exploitation
-- ret2libc / ROP
-- GOT overwrite
-- seccomp bypass
-- sandbox escape in pwn-style binaries
+- `solve-challenge`：不确定题型时作为总入口，先做分类和调度。
+- `ctf-pwn`：pwn 主技能，覆盖栈、格式化字符串、heap、ROP、ret2libc、seccomp、sandbox 等。
+- `ctf-web`：web 题主技能，覆盖路由、鉴权、模板、数据库、上传、SSRF、SSTI、SQLi、XSS、JWT 等。
+- `ctf-crypto`：crypto 题主技能，覆盖 RSA、ECC、格、PRNG、padding oracle、签名、ZKP 等。
+- `ctf-reverse`：reverse 主技能，覆盖 ELF、APK、WASM、VM、混淆、符号执行、约束求解等。
+- `ctf-misc`：misc 主技能，覆盖编码、取证、流量、音频、图片、jail、z3 等。
+- `ctf-writeup`：解完后整理 `wp.md`。
+- `exploit-chain-planning`：复杂利用链拆解、假设验证和分支规划。
 
-### Strongly recommended
+推荐 MCP / 外部工具：
 
-- `solve-challenge`
+- `pwndbg-mcp`：复杂 pwn 题优先使用，适合读取寄存器、栈、堆、bins、tcache、vmmap、断点和崩溃现场。
+- 本地 `gdb` / `pwndbg`：基础动态调试。
+- `checksec`、`file`、`readelf`、`objdump`、`ROPgadget`：pwn / reverse 基础分析。
+- `patchelf` 和题目自带 `ld` / `libc`：复现远程运行环境。
+- `SageMath`、`z3`、`fplll`、`RsaCtfTool`：crypto / misc 求解。
+- `tshark`、`binwalk`、`exiftool`、`ffmpeg`、`sox`：misc / forensics。
 
-Use `solve-challenge` when you want one higher-level entrypoint that decides whether the target is pwn, reverse, web, crypto, or misc and then pulls in the right technique flow.
+pwn 题建议流程：
 
-### Useful supporting skills
+1. `bin/init_challenge.sh <challenge_dir>`
+2. 读取附件并确认 binary、libc、ld、patched binary、`exp_template.py`
+3. 用 `FACTS.md` 固化事实，用 `STATE.md` 规划路线
+4. 用 `bin/run_pwn.sh <challenge_dir> info` 检查 `.pwnrun`
+5. 在稳定 primitive 或 leak 后创建 checkpoint
+6. 高风险 pivot 前再创建 checkpoint
+7. 最终产出 `exp.py` 和 `wp.md`
 
-- `exploit-chain-planning`: refine exploit hypotheses into explicit staged plans
-- `ctf-reverse`: binary reversing, obfuscated logic, custom VM analysis
-- `ctf-web`: web challenge exploitation
-- `ctf-crypto`: cryptography challenge solving
-- `ctf-misc`: encoding, z3, jails, QR, audio, and other odd formats
+## run_pwn.sh
 
-### Recommended pairing
-
-For pwn challenges:
-
-1. Read `AGENTS.md`.
-2. Use `prompts/pwn.md` as the authoritative `amds` pwn workflow.
-3. Use `ctf-pwn` for exploit reasoning.
-4. Use `STATE.md`, `FACTS.md`, `checkpoints/`, and `attempts/` to keep progress recoverable.
-
-## `run_pwn.sh`
-
-`run_pwn.sh` gives one entrypoint for:
-
-- local exploit runs
-- remote exploit runs
-- patched local runs
-
-It reads optional `.pwnrun` per challenge and exports normalized `PWN_*` environment variables:
+`run_pwn.sh` 为 pwn 题提供统一入口，并导出一组标准环境变量：
 
 - `PWN_MODE`
 - `PWN_CHAL_DIR`
@@ -329,41 +274,27 @@ It reads optional `.pwnrun` per challenge and exports normalized `PWN_*` environ
 - `PWN_LOCAL_ARGS`
 - `PWN_REMOTE_ARGS`
 
-For legacy exploits, the default behavior is compatible with the common pattern:
+默认兼容常见 pwntools 写法：
 
-- local: `python3 exp.py`
-- remote: `python3 exp.py r <host> <port>`
+- local：`python3 exp.py`
+- remote：`python3 exp.py r <host> <port>`
 
-For new exploits, prefer reading `PWN_*` so that one script works cleanly across local, remote, and patched modes.
+新 exploit 建议读取 `PWN_*`，这样 local、remote 和 patched 模式可以共享同一个 `exp.py`。
 
-If setup looks wrong, inspect the resolved state first:
+libc 策略：
 
-```bash
-bin/run_pwn.sh challenges/baby_tcache info
-```
+- 优先使用当前题目提供的 `libc` 和 `ld`。
+- 优先用 `patchelf`、题目 loader 或 `run_pwn.sh patched` 复现环境。
+- 不要在未确认时静默使用系统 libc。
+- 不要从其他 challenge、历史题目、下载缓存或工具缓存复制 libc / ld。
+- 没有 libc 时，先泄露符号，再根据泄露结果匹配远程 libc。
 
-## Libc Policy
+## TODO
 
-Prefer this order:
+- [ ] Plan 模式：在正式 solve 前生成可审阅计划，支持用户确认后再执行。
+- [ ] subagent 集成：把 recon、动态调试、exploit 编写、writeup 整理拆成并行子任务。
+- [ ] Checkpoint diff：前端展示 checkpoint 之间的文件差异。
+- [ ] Checkpoint branch：更明确地支持多分支路线和非线性回滚。 (一个想法是git)
+- [ ] 前端功能完善，Web日志
+- [ ] 更完整的平台抓取：扩展 NSSCTF / BUUCTF 以外的平台适配。
 
-1. Use the challenge-provided `libc` and `ld` if they exist.
-2. Reproduce locally with `patchelf`, the provided loader, or `run_pwn.sh patched`.
-3. If `libc` is not provided, leak symbols first and then identify the remote libc from a database such as `libc.rip`.
-
-Avoid silently using the host libc unless that choice is explicitly verified.
-Do not copy `libc` or `ld` from other local challenges, old solves, download caches, or unrelated workspace directories.
-
-## Outputs
-
-For a finished pwn solve, the expected final artifacts are:
-
-- `exp.py`
-- `wp.md`
-
-Optional but recommended supporting files:
-
-- `STATE.md`
-- `FACTS.md`
-- `.pwnrun`
-- `attempts/<note>.md`
-- `checkpoints/<timestamp>-<name>/`

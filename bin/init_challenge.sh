@@ -21,7 +21,7 @@ if [ ! -e "${target_dir}/checkpoints/.checkpoint-graph.json" ]; then
 EOF
 fi
 
-for name in STATE.md FACTS.md .ctf-files .pwnrun; do
+for name in STATE.md FACTS.md .ctf-files .pwnrun metadata.json; do
     src="${root_dir}/templates/${name}"
     dst="${target_dir}/${name}"
     if [ ! -e "${dst}" ]; then
