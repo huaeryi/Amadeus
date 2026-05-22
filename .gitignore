@@ -10,4 +10,4 @@ __pycache__/
 
 # Local challenge materials and solve state
 challenges/*
-!challenges/AGENTS.md
+!challenges/README.md
