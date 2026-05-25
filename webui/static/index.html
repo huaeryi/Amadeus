@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Amadeus Challenge Console</title>
-    <link rel="stylesheet" href="/styles.css?v=metadata-type-1" />
+    <link rel="stylesheet" href="/styles.css?v=grouped-challenges-1" />
   </head>
   <body>
     <div class="background-glow background-glow-a"></div>
@@ -23,8 +23,8 @@
             <span class="badge">init on create</span>
           </div>
           <label class="field">
-            <span>Name</span>
-            <input id="create-name" name="name" type="text" placeholder="baby_heap" autocomplete="off" />
+            <span>Path</span>
+            <input id="create-name" name="name" type="text" placeholder="defcon/baby_heap" autocomplete="off" />
           </label>
           <button class="button primary" type="submit">Create</button>
         </form>
@@ -36,7 +36,7 @@
           </div>
           <label class="field">
             <span>Filter</span>
-            <input id="challenge-filter" type="search" placeholder="Search by name" autocomplete="off" />
+            <input id="challenge-filter" type="search" placeholder="Search competition or challenge" autocomplete="off" />
           </label>
           <div id="challenge-list" class="challenge-list"></div>
         </section>
@@ -58,6 +58,6 @@
     </div>
 
     <div id="toast-layer" class="toast-layer" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=metadata-type-1"></script>
+    <script type="module" src="/app.js?v=grouped-challenges-1"></script>
   </body>
   </html>

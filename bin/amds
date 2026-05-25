@@ -3,17 +3,20 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--append TEXT] [--mode solve|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse] [--session ID|latest] <challenge|path|url> [-- codex_args...]
+usage: amds [--print] [--dry-run] [--group NAME] [--append TEXT] [--mode solve|guide|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse] [--session ID|latest] <challenge|path|url> [-- codex_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
+  amds --mode guide --workflow pwn newnote
   amds --mode fetch https://www.nssctf.cn/problem/131
+  amds fetch --group defcon https://www.nssctf.cn/problem/131
   amds --mode exec https://www.nssctf.cn/problem/131
   amds --mode exec --workflow pwn https://www.nssctf.cn/problem/131
   amds --mode learn newnote
   amds learn newnote --session latest
   amds learn newnote --session 20260522-143012-pwn
   amds solve pwn newnote
+  amds guide pwn newnote
   amds fetch https://www.nssctf.cn/problem/131
   amds exec https://www.nssctf.cn/problem/131
   amds exec --workflow pwn https://www.nssctf.cn/problem/131
@@ -25,20 +28,26 @@ examples:
   amds --reverse rev_chal
   amds -w pwn newnote
   amds pwn newnote
+  amds guide pwn defcon/newnote
   amds pwn challenges/newnote
+  amds pwn challenges/defcon/newnote
   amds pwn Amadeus/challenges/newnote
   amds --workflow pwn newnote --append "远程地址是 http://node4.anna.nssctf.cn:21280/"
+  amds guide --workflow pwn newnote
   amds --workflow pwn newnote --dry-run
   amds --workflow pwn newnote -- --search -m gpt-5.5
   amds newnote
 
 behavior:
-  - solve mode resolves the challenge under Amadeus/challenges/
+  - solve mode resolves the challenge under ./challenges/, including grouped paths like defcon/newnote
+  - guide mode is solve mode plus guided thinking gates
+  - grouped challenges can live under ./challenges/<group>/<challenge>
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
   - learn mode runs the post-solve learning/reflection workflow for a challenge
   - exec mode accepts --workflow to force the solve workflow after fetch
   - loads a workflow prompt template, defaulting to pwn for solve mode
+  - guided mode adds thinking gates so Codex teaches, asks, and waits before key pivots
   - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse
   - launches codex with the current CLI equivalent of "codex --yolo"
 EOF
@@ -90,23 +99,32 @@ render_template() {
     local session_path="${5:-}"
     local output
     local escaped_challenge_path
-    local escaped_root_name
+    local escaped_prompt_root
     local escaped_target_url
     local escaped_session_id
     local escaped_session_path
+    local escaped_challenge_group
+    local escaped_challenge_group_prefix
+    local escaped_group_option
 
     [ -f "$template_path" ] || die "workflow template not found: $template_path"
     escaped_challenge_path="$(escape_sed_replacement "$challenge_path")"
-    escaped_root_name="$(escape_sed_replacement "$root_name")"
+    escaped_prompt_root="$(escape_sed_replacement "$prompt_root")"
     escaped_target_url="$(escape_sed_replacement "$target_url")"
     escaped_session_id="$(escape_sed_replacement "$session_id")"
     escaped_session_path="$(escape_sed_replacement "$session_path")"
+    escaped_challenge_group="$(escape_sed_replacement "$challenge_group")"
+    escaped_challenge_group_prefix="$(escape_sed_replacement "$challenge_group_prefix")"
+    escaped_group_option="$(escape_sed_replacement "$group_option")"
     output="$(sed \
         -e "s|{{challenge_path}}|${escaped_challenge_path}|g" \
-        -e "s|{{root_name}}|${escaped_root_name}|g" \
+        -e "s|{{root_name}}|${escaped_prompt_root}|g" \
         -e "s|{{target_url}}|${escaped_target_url}|g" \
         -e "s|{{session}}|${escaped_session_id}|g" \
         -e "s|{{session_path}}|${escaped_session_path}|g" \
+        -e "s|{{challenge_group}}|${escaped_challenge_group}|g" \
+        -e "s|{{challenge_group_prefix}}|${escaped_challenge_group_prefix}|g" \
+        -e "s|{{group_option}}|${escaped_group_option}|g" \
         "$template_path")"
     printf '%s\n' "$output"
 }
@@ -140,6 +158,10 @@ template_exists() {
         [ -f "${legacy_prompt_dir}/${name}.txt" ]
 }
 
+shell_quote() {
+    printf '%q' "$1"
+}
+
 find_fetched_challenge() {
     local source_url="$1"
     local file
@@ -149,7 +171,7 @@ find_fetched_challenge() {
             dirname "$file"
             return 0
         fi
-    done < <(find "${root_dir}/challenges" -mindepth 2 -maxdepth 2 -type f \( -name description.md -o -name FACTS.md \) | sort)
+    done < <(find "${root_dir}/challenges" -mindepth 2 -type f \( -name description.md -o -name FACTS.md \) | sort)
 
     return 1
 }
@@ -179,6 +201,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "${script_dir}/.." && pwd)"
 workspace_parent="$(cd "${root_dir}/.." && pwd)"
 root_name="$(basename "${root_dir}")"
+workspace_dir="$root_dir"
+prompt_root="."
 prompt_dir="${root_dir}/prompts"
 legacy_prompt_dir="${root_dir}/pts"
 
@@ -188,6 +212,7 @@ mode="solve"
 display_mode="solve"
 workflow="pwn"
 workflow_explicit=0
+challenge_group=""
 target_input=""
 session_input=""
 declare -a append_lines=()
@@ -213,12 +238,21 @@ while [ $# -gt 0 ]; do
             workflow_explicit=1
             shift 2
             ;;
+        --group)
+            [ $# -ge 2 ] || die "--group requires a name"
+            challenge_group="$2"
+            shift 2
+            ;;
         --mode|-m)
-            [ $# -ge 2 ] || die "--mode requires solve, fetch, exec, or learn"
+            [ $# -ge 2 ] || die "--mode requires solve, guide, fetch, exec, or learn"
             case "$2" in
                 solve|fetch|exec)
                     mode="$2"
                     display_mode="$2"
+                    ;;
+                guide)
+                    mode="solve"
+                    display_mode="guide"
                     ;;
                 learn)
                     mode="solve"
@@ -264,6 +298,12 @@ while [ $# -gt 0 ]; do
                         shift
                         continue
                         ;;
+                    guide)
+                        mode="solve"
+                        display_mode="guide"
+                        shift
+                        continue
+                        ;;
                     learn)
                         mode="solve"
                         display_mode="learn"
@@ -292,6 +332,13 @@ done
 
 [ -n "$target_input" ] || die "target is required"
 
+group_option=""
+challenge_group_prefix=""
+if [ -n "$challenge_group" ]; then
+    group_option="--group $(shell_quote "$challenge_group") "
+    challenge_group_prefix="${challenge_group%/}/"
+fi
+
 challenge_prompt_path=""
 target_url=""
 session_prompt_value=""
@@ -299,9 +346,19 @@ session_prompt_path=""
 
 case "$mode" in
     solve)
+        if [ -n "$challenge_group" ]; then
+            case "$target_input" in
+                /*|challenges/*|"${root_name}/challenges/"*|*/*)
+                    die "--group with solve/guide requires a bare challenge name, not a path: $target_input"
+                    ;;
+                *)
+                    target_input="${challenge_group}/${target_input}"
+                    ;;
+            esac
+        fi
         challenge_dir="$(resolve_challenge "$target_input")"
         challenge_rel="${challenge_dir#${root_dir}/}"
-        challenge_prompt_path="${root_name}/${challenge_rel}"
+        challenge_prompt_path="${challenge_rel}"
         template_path="$(resolve_template "$workflow")"
         if [ -n "$session_input" ]; then
             if [ "$display_mode" != "learn" ]; then
@@ -324,6 +381,9 @@ case "$mode" in
     exec)
         target_url="$target_input"
         fetch_cmd=("$0" --mode fetch "$target_url")
+        if [ -n "$challenge_group" ]; then
+            fetch_cmd+=(--group "$challenge_group")
+        fi
         if [ ${#codex_args[@]} -gt 0 ]; then
             fetch_cmd+=("--" "${codex_args[@]}")
         fi
@@ -335,9 +395,12 @@ case "$mode" in
                 dry_solve_workflow="auto"
             fi
 
-            printf 'workspace: %s\n' "$workspace_parent"
+            printf 'workspace: %s\n' "$workspace_dir"
             printf 'mode: exec\n'
             printf 'url: %s\n' "$target_url"
+            if [ -n "$challenge_group" ]; then
+                printf 'group: %s\n' "$challenge_group"
+            fi
             printf 'solve_workflow: %s\n' "$dry_solve_workflow"
             printf 'fetch_command:'
             for arg in "${fetch_cmd[@]}"; do
@@ -369,9 +432,9 @@ case "$mode" in
                 printf '\n'
             else
                 if [ "$workflow_explicit" = "1" ]; then
-                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then %q --mode solve --workflow %q <challenge_dir>\n' "$root_name" "$0" "$workflow"
+                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then %q --mode solve --workflow %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow"
                 else
-                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then infer workflow from description.md/FACTS.md\n' "$root_name"
+                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then infer workflow from description.md/FACTS.md\n' "$prompt_root"
                 fi
             fi
             exit 0
@@ -407,6 +470,13 @@ fi
 
 mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
 
+if [ "$display_mode" = "guide" ]; then
+    guided_template_path="$(resolve_template "guided")"
+    mapfile -t guided_lines < <(render_template "$guided_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
+    prompt_lines+=("")
+    prompt_lines+=("${guided_lines[@]}")
+fi
+
 if [ ${#append_lines[@]} -gt 0 ]; then
     prompt_lines+=("${append_lines[@]}")
 fi
@@ -425,7 +495,7 @@ command -v "$codex_bin" >/dev/null 2>&1 || die "codex not found: $codex_bin"
 codex_cmd=(
     "$codex_bin"
     --dangerously-bypass-approvals-and-sandbox
-    -C "$workspace_parent"
+    -C "$workspace_dir"
 )
 
 if [ ${#codex_args[@]} -gt 0 ]; then
@@ -435,17 +505,28 @@ fi
 codex_cmd+=("$prompt")
 
 if [ "$dry_run" = "1" ]; then
-    printf 'workspace: %s\n' "$workspace_parent"
+    printf 'workspace: %s\n' "$workspace_dir"
     printf 'mode: %s\n' "$display_mode"
     printf 'workflow: %s\n' "$workflow"
+    if [ "$display_mode" = "guide" ]; then
+        printf 'guided: 1\n'
+    else
+        printf 'guided: 0\n'
+    fi
     if [ "$mode" = "solve" ]; then
         printf 'challenge: %s\n' "$challenge_prompt_path"
+        if [ -n "$challenge_group" ]; then
+            printf 'group: %s\n' "$challenge_group"
+        fi
         if [ -n "$session_prompt_value" ]; then
             printf 'session: %s\n' "$session_prompt_value"
             printf 'session_path: %s\n' "$session_prompt_path"
         fi
     else
         printf 'url: %s\n' "$target_url"
+        if [ -n "$challenge_group" ]; then
+            printf 'group: %s\n' "$challenge_group"
+        fi
     fi
     printf 'command:'
     for arg in "${codex_cmd[@]}"; do

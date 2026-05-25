@@ -360,6 +360,7 @@ function filteredChallenges() {
   return state.challenges.filter((challenge) => {
     const haystack = [
       challenge.name,
+      challenge.group,
       challenge.title,
       challenge.challenge_type,
       ...(challenge.tags || []),
@@ -369,6 +370,25 @@ function filteredChallenges() {
       .toLowerCase();
     return haystack.includes(needle);
   });
+}
+
+function challengeDisplayName(challenge) {
+  if (challenge.group && challenge.name.startsWith(`${challenge.group}/`)) {
+    return challenge.name.slice(challenge.group.length + 1);
+  }
+  return challenge.name;
+}
+
+function groupChallenges(challenges) {
+  const groups = new Map();
+  for (const challenge of challenges) {
+    const group = challenge.group || "Ungrouped";
+    if (!groups.has(group)) {
+      groups.set(group, []);
+    }
+    groups.get(group).push(challenge);
+  }
+  return [...groups.entries()];
 }
 
 function renderChallengeList() {
@@ -385,26 +405,40 @@ function renderChallengeList() {
     return;
   }
 
-  elements.challengeList.innerHTML = items
-    .map((challenge) => {
-      const statusTone = challenge.solve_status === "solved" ? "ok" : "warn";
-      const challengeType = challenge.challenge_type || "unknown";
-      const badges = [
-        `<span class="chip type">${escapeHtml(challengeType)}</span>`,
-        `<span class="chip ${statusTone}">${escapeHtml(challenge.solve_status)}</span>`,
-        challenge.initialized ? `<span class="chip ok">initialized</span>` : `<span class="chip warn">not init</span>`,
-        `<span class="chip">${challenge.checkpoint_count} cp</span>`,
-      ].join("");
+  elements.challengeList.innerHTML = groupChallenges(items)
+    .map(([group, challenges]) => {
+      const cards = challenges
+        .map((challenge) => {
+          const statusTone = challenge.solve_status === "solved" ? "ok" : "warn";
+          const challengeType = challenge.challenge_type || "unknown";
+          const badges = [
+            `<span class="chip type">${escapeHtml(challengeType)}</span>`,
+            `<span class="chip ${statusTone}">${escapeHtml(challenge.solve_status)}</span>`,
+            challenge.initialized ? `<span class="chip ok">initialized</span>` : `<span class="chip warn">not init</span>`,
+            `<span class="chip">${challenge.checkpoint_count} cp</span>`,
+          ].join("");
+
+          return `
+            <button class="challenge-card ${challenge.name === state.selected ? "active" : ""}" data-name="${escapeHtml(challenge.name)}" type="button">
+              <div class="challenge-card-title">
+                <strong>${escapeHtml(challengeDisplayName(challenge))}</strong>
+                <span class="meta">${escapeHtml(challenge.updated_at.slice(5, 16).replace("T", " "))}</span>
+              </div>
+              <div class="challenge-card-badges">${badges}</div>
+              <p class="meta mono">${escapeHtml(challenge.name)}</p>
+            </button>
+          `;
+        })
+        .join("");
 
       return `
-        <button class="challenge-card ${challenge.name === state.selected ? "active" : ""}" data-name="${escapeHtml(challenge.name)}" type="button">
-          <div class="challenge-card-title">
-            <strong>${escapeHtml(challenge.name)}</strong>
-            <span class="meta">${escapeHtml(challenge.updated_at.slice(5, 16).replace("T", " "))}</span>
+        <section class="challenge-group">
+          <div class="challenge-group-heading">
+            <span>${escapeHtml(group)}</span>
+            <span class="chip">${challenges.length}</span>
           </div>
-          <div class="challenge-card-badges">${badges}</div>
-          <p class="meta">${escapeHtml(challenge.path)}</p>
-        </button>
+          <div class="challenge-group-list">${cards}</div>
+        </section>
       `;
     })
     .join("");
@@ -884,7 +918,11 @@ async function createChallenge(event) {
   event.preventDefault();
   const name = elements.createName.value.trim();
   if (!name) {
-    showToast("Challenge name is required.", "error");
+    showToast("Challenge path is required.", "error");
+    return;
+  }
+  if (name.split("/").filter(Boolean).length !== 2) {
+    showToast("Use a grouped path like defcon/baby_heap.", "error");
     return;
   }
 

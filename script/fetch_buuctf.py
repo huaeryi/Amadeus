@@ -80,6 +80,13 @@ def safe_title(title: str) -> str:
     return title or "buuctf_unknown"
 
 
+def safe_group_path(group: str) -> Path:
+    parts = [safe_title(part) for part in re.split(r"[\\/]+", group.strip()) if part.strip()]
+    if any(part in {".", ".."} for part in parts):
+        raise FetchError("group must not contain '.' or '..' path segments")
+    return Path(*parts) if parts else Path()
+
+
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip().lower()
 
@@ -705,9 +712,9 @@ def write_outputs(
             ctf_files.write_text(text.rstrip() + "\n" + "\n".join(additions) + "\n", encoding="utf-8")
 
 
-def write_partial_failure(title_hint: str, source_url: str, error: str, overwrite: bool) -> Path:
+def write_partial_failure(title_hint: str, source_url: str, error: str, overwrite: bool, group: str) -> Path:
     title = safe_title(title_hint or "buuctf_fetch_failed")
-    challenge_dir = CHALLENGES_DIR / title
+    challenge_dir = CHALLENGES_DIR / safe_group_path(group) / title
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
     problem = {
@@ -728,6 +735,7 @@ def main() -> int:
     parser.add_argument("url_or_id_or_title", help="BUUCTF challenge URL, numeric id, or title")
     parser.add_argument("--overwrite", action="store_true", help="overwrite generated markdown/config files")
     parser.add_argument("--no-extract", action="store_true", help="do not auto-extract zip attachments")
+    parser.add_argument("--group", default="", help="optional challenges subdirectory, e.g. defcon or defcon/quals")
     parser.add_argument("--print-dir", action="store_true", help="print only the resulting challenge directory at the end")
     args = parser.parse_args()
 
@@ -751,14 +759,14 @@ def main() -> int:
             else:
                 raise
     except FetchError as exc:
-        challenge_dir = write_partial_failure(title_hint, source_url, str(exc), args.overwrite)
+        challenge_dir = write_partial_failure(title_hint, source_url, str(exc), args.overwrite, args.group)
         print(f"challenge_dir={challenge_dir}")
         print(f"fetch_status=failed")
         print(f"fetch_error={exc}")
         return 2
 
     title = safe_title(str(problem.get("name") or problem.get("title") or title_hint or f"buuctf_{challenge_id}"))
-    challenge_dir = CHALLENGES_DIR / title
+    challenge_dir = CHALLENGES_DIR / safe_group_path(args.group) / title
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
 

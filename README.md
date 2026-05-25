@@ -24,6 +24,7 @@ Amadeus/
 - `bin/restore.sh`：从 checkpoint 恢复被跟踪文件。
 - `bin/run_pwn.sh`：pwn 题统一运行入口，支持 local / remote / patched / info。
 - `prompts/*.md`：不同题型的 agent 工作流约束。
+- `prompts/guided.md`：主动学习模式追加的教练协议。
 - `prompts/learn.md`：post-solve 反思和学习入口。
 - `prompts/learn/`：各题型的长期学习规则、反思清单和学习侧重点。
 - `prompts/learn/LEARNING_LOG.md`：每次 `amds learn` 的长期学习变更日志。
@@ -37,18 +38,27 @@ Amadeus/
 
 ```bash
 bin/init_challenge.sh challenges/baby_tcache
+bin/init_challenge.sh challenges/defcon/baby_tcache
 ```
 
 启动 pwn 解题工作流：
 
 ```bash
 bin/amds --workflow pwn baby_tcache
+bin/amds pwn defcon/baby_tcache
+```
+
+启动带提问和复盘的主动学习工作流：
+
+```bash
+bin/amds guide pwn baby_tcache
 ```
 
 抓题但不解题：
 
 ```bash
 bin/amds fetch https://www.nssctf.cn/problem/131
+bin/amds fetch --group defcon https://www.nssctf.cn/problem/131
 bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
@@ -78,23 +88,36 @@ bin/run_pwn.sh challenges/baby_tcache info
 
 ## amds 工作流
 
-`bin/amds` 是对 `codex` 的薄封装，会在 Amadeus 的上级目录启动 Codex，并把题目路径、workflow prompt 和附加说明一起传入。
+`bin/amds` 是对 `codex` 的薄封装，会在 Amadeus 根目录启动 Codex，并把题目路径、workflow prompt 和附加说明一起传入。
 
 基本格式：
 
 ```bash
-bin/amds [--mode solve|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc] [--session ID|latest] <challenge|path|url> [-- codex_args...]
+bin/amds [--mode solve|guide|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc] [--session ID|latest] <challenge|path|url> [-- codex_args...]
 ```
 
 ### solve
 
-`solve` 解析 `challenges/<name>` 或 challenge 路径，加载对应 `prompts/<workflow>.md`。默认 workflow 是 `pwn`。
+`solve` 解析 `challenges/<name>`、`challenges/<group>/<name>` 或 challenge 路径，加载对应 `prompts/<workflow>.md`。默认 workflow 是 `pwn`。
 
 ```bash
 bin/amds --mode solve --workflow pwn newnote
 bin/amds --workflow pwn newnote
+bin/amds --workflow pwn defcon/newnote
+bin/amds --group defcon --workflow pwn newnote
 bin/amds pwn newnote
 bin/amds newnote
+```
+
+### guide
+
+`guide` 和 `solve` 走同一套解题流程，区别是自动追加 `prompts/guided.md`，让 agent 在关键分叉前先让你判断并做复盘记录。
+
+```bash
+bin/amds guide pwn newnote
+bin/amds guide pwn defcon/newnote
+bin/amds guide --workflow pwn newnote
+bin/amds --mode guide --workflow pwn newnote
 ```
 
 题型快捷参数：
@@ -114,12 +137,21 @@ bin/amds --workflow pwn newnote --dry-run
 bin/amds --workflow pwn newnote -- --search -m gpt-5.5
 ```
 
+主动学习模式：
+
+```bash
+bin/amds guide pwn newnote
+```
+
+`guide` 会追加 `prompts/guided.md`：agent 在关键分叉前会先让你判断，要求解释命令输出如何改变结论，并在 `STATE.md` 维护 `Your turn` 问题，在 `wp.md` 维护 `Learning checkpoints`。比赛冲刺时用 `solve` 或普通模式，训练和复盘时用 `guide`。
+
 ### fetch
 
 `fetch` 只获取题面、附件、metadata 和环境信息，不进入解题。
 
 ```bash
 bin/amds fetch https://www.nssctf.cn/problem/131
+bin/amds fetch --group defcon https://www.nssctf.cn/problem/131
 bin/amds --mode fetch https://www.nssctf.cn/problem/131
 bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
 ```
@@ -130,6 +162,7 @@ bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
 
 ```bash
 bin/amds exec https://www.nssctf.cn/problem/131
+bin/amds exec --group defcon https://www.nssctf.cn/problem/131
 bin/amds --mode exec https://www.nssctf.cn/problem/131
 bin/amds exec --workflow pwn https://www.nssctf.cn/problem/131
 bin/amds --mode exec --workflow web https://example.com/challenge
@@ -157,6 +190,7 @@ fetch helper 会读取本地 `.env`，但 shell 中已经 export 的值优先级
 
 ```bash
 NSSCTF_COOKIE='...' script/fetch_nssctf.py https://www.nssctf.cn/problem/131
+NSSCTF_COOKIE='...' script/fetch_nssctf.py --group defcon https://www.nssctf.cn/problem/131
 BUUCTF_COOKIE='...' script/fetch_buuctf.py 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
@@ -176,6 +210,14 @@ challenges/baby_tcache/
 ├── attempts/            # 失败分支和临时路线记录
 └── checkpoints/         # checkpoint 快照和图数据
 ```
+
+也可以按比赛分组：
+
+```text
+challenges/defcon/baby_tcache/
+```
+
+分组目录只是容器，真正的 challenge 目录仍然是包含 `STATE.md`、`FACTS.md` 等文件的叶子目录。
 
 约定：
 
@@ -258,7 +300,7 @@ http://127.0.0.1:9999/
 主要 API：
 
 - `GET /api/challenges`
-- `GET /api/challenges/<name>`
+- `GET /api/challenges/<name>` 或 URL 编码后的 `<group>/<name>`
 - `POST /api/challenges`
 - `POST /api/challenges/<name>/init`
 - `GET /api/challenges/<name>/run-info`

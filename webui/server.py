@@ -20,7 +20,7 @@ STATIC_DIR = ROOT_DIR / "webui" / "static"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
 CORE_DOCUMENTS = ("STATE.md", "FACTS.md", "metadata.json", ".ctf-files", ".pwnrun")
-CHALLENGE_NAME_RE = re.compile(r"^[^/\\\x00]+$")
+CHALLENGE_NAME_RE = re.compile(r"^[^\\\x00]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
 BINARY_PREVIEW_LIMIT = 4096
 INTERNAL_CHECKPOINT_FILES = {".amadeus-head"}
@@ -39,10 +39,13 @@ def isoformat_from_timestamp(timestamp: float) -> str:
 
 
 def challenge_path(name: str) -> Path:
-    if not name or name in {".", ".."} or not CHALLENGE_NAME_RE.fullmatch(name):
-        raise ApiError(400, "Invalid challenge name. Do not use slashes, backslashes, NUL bytes, '.', or '..'.")
+    if not name or not CHALLENGE_NAME_RE.fullmatch(name):
+        raise ApiError(400, "Invalid challenge name. Do not use backslashes or NUL bytes.")
+    requested_path = Path(name)
+    if requested_path.is_absolute() or any(part in {"", ".", ".."} for part in requested_path.parts):
+        raise ApiError(400, "Invalid challenge path. Do not use absolute paths, empty segments, '.', or '..'.")
 
-    path = (CHALLENGES_DIR / name).resolve()
+    path = (CHALLENGES_DIR / requested_path).resolve()
     try:
         path.relative_to(CHALLENGES_DIR.resolve())
     except ValueError as exc:
@@ -243,7 +246,10 @@ def build_directory_entries(challenge_dir: Path, resolved_dir: Path) -> list[dic
         resolved_dir.iterdir(),
         key=lambda item: (not item.is_dir(), item.name.lower()),
     ):
-        stat = entry.stat()
+        try:
+            stat = entry.stat()
+        except OSError:
+            continue
         entry_relative = str(entry.relative_to(challenge_dir))
         entries.append(
             {
@@ -322,7 +328,10 @@ def preview_file(challenge_name: str, relative_path: str) -> dict[str, Any]:
 def collect_artifacts(path: Path) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
     for entry in sorted(path.iterdir(), key=lambda item: item.name.lower()):
-        stat = entry.stat()
+        try:
+            stat = entry.stat()
+        except OSError:
+            continue
         artifacts.append(
             {
                 "name": entry.name,
@@ -346,7 +355,10 @@ def collect_attempts(path: Path) -> list[dict[str, Any]]:
     for entry in sorted(attempts_dir.iterdir(), key=lambda item: item.name.lower(), reverse=True):
         if not entry.is_file():
             continue
-        stat = entry.stat()
+        try:
+            stat = entry.stat()
+        except OSError:
+            continue
         attempts.append(
             {
                 "name": entry.name,
@@ -402,7 +414,10 @@ def collect_checkpoints(path: Path) -> list[dict[str, Any]]:
                 continue
             meta = parse_meta_file(entry / "META.txt")
             node = node_map.get(entry.name, {})
-            stat = entry.stat()
+            try:
+                stat = entry.stat()
+            except OSError:
+                continue
             checkpoints.append(
                 {
                     "id": meta.get("checkpoint_id", node.get("id", entry.name)),
@@ -426,7 +441,10 @@ def collect_checkpoints(path: Path) -> list[dict[str, Any]]:
         if not entry.is_dir() or entry.name == "latest":
             continue
         meta = parse_meta_file(entry / "META.txt")
-        stat = entry.stat()
+        try:
+            stat = entry.stat()
+        except OSError:
+            continue
         checkpoints.append(
             {
                 "id": meta.get("checkpoint_id", entry.name),
@@ -496,8 +514,11 @@ def challenge_summary(path: Path) -> dict[str, Any]:
     for artifact in artifacts:
         updated_at = max(updated_at, artifact["modified_at"])
 
+    challenge_name = str(path.relative_to(CHALLENGES_DIR))
+    group = str(path.parent.relative_to(CHALLENGES_DIR)) if path.parent != CHALLENGES_DIR else ""
     return {
-        "name": path.name,
+        "name": challenge_name,
+        "group": "" if group == "." else group,
         "title": metadata.get("title") or path.name,
         "path": str(path.relative_to(ROOT_DIR)),
         "metadata": metadata,
@@ -539,11 +560,16 @@ def list_challenges() -> list[dict[str, Any]]:
     if not CHALLENGES_DIR.exists():
         return []
 
-    challenges = [
-        challenge_summary(entry)
-        for entry in sorted(CHALLENGES_DIR.iterdir(), key=lambda item: item.name.lower())
-        if entry.is_dir() and not entry.name.startswith(".")
-    ]
+    def is_challenge_dir(path: Path) -> bool:
+        return path.is_dir() and not path.name.startswith(".") and any((path / name).exists() for name in CORE_DOCUMENTS)
+
+    challenges: list[dict[str, Any]] = []
+    for group_dir in sorted(CHALLENGES_DIR.iterdir(), key=lambda item: item.name.lower()):
+        if not group_dir.is_dir() or group_dir.name.startswith("."):
+            continue
+        for entry in sorted(group_dir.iterdir(), key=lambda item: item.name.lower()):
+            if is_challenge_dir(entry):
+                challenges.append(challenge_summary(entry))
     return challenges
 
 
@@ -588,10 +614,12 @@ class AmadeusHandler(SimpleHTTPRequestHandler):
                     initialize = bool(payload.get("initialize", True))
                     if not name:
                         raise ApiError(400, "Challenge name is required.")
+                    if len(Path(name).parts) != 2:
+                        raise ApiError(400, "Challenge name must use <competition>/<challenge>, for example defcon/baby_heap.")
                     path = challenge_path(name)
                     if path.exists():
                         raise ApiError(409, f"Challenge already exists: {name}")
-                    path.mkdir(parents=False, exist_ok=False)
+                    path.mkdir(parents=True, exist_ok=False)
                     result: dict[str, Any] | None = None
                     if initialize:
                         result = run_script("init_challenge.sh", str(path))

@@ -117,6 +117,13 @@ def safe_title(title: str) -> str:
     return title or "nssctf_unknown"
 
 
+def safe_group_path(group: str) -> Path:
+    parts = [safe_title(part) for part in re.split(r"[\\/]+", group.strip()) if part.strip()]
+    if any(part in {".", ".."} for part in parts):
+        raise FetchError("group must not contain '.' or '..' path segments")
+    return Path(*parts) if parts else Path()
+
+
 def tag_names(problem: dict[str, Any]) -> list[str]:
     tags = problem.get("tag") or problem.get("tags") or []
     names: list[str] = []
@@ -475,6 +482,7 @@ def main() -> int:
     parser.add_argument("url_or_id", help="NSSCTF problem URL or numeric id")
     parser.add_argument("--overwrite", action="store_true", help="overwrite generated markdown/config files")
     parser.add_argument("--no-extract", action="store_true", help="do not auto-extract zip attachments")
+    parser.add_argument("--group", default="", help="optional challenges subdirectory, e.g. defcon or defcon/quals")
     parser.add_argument("--print-dir", action="store_true", help="print only the resulting challenge directory at the end")
     args = parser.parse_args()
 
@@ -491,7 +499,7 @@ def main() -> int:
         raise FetchError(f"detail API missing data object: {detail!r}")
 
     title = safe_title(str(problem.get("title") or f"nssctf_{problem_id}"))
-    challenge_dir = CHALLENGES_DIR / title
+    challenge_dir = CHALLENGES_DIR / safe_group_path(args.group) / title
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
 
