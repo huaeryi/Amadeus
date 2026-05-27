@@ -153,8 +153,7 @@ textarea {
 .detail-header,
 .detail-actions,
 .checkpoint-item,
-.artifact-item,
-.attempt-item {
+.artifact-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -240,8 +239,7 @@ textarea {
 
 .challenge-list,
 .checkpoints,
-.artifact-list,
-.attempt-list {
+.artifact-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -486,14 +484,12 @@ textarea {
 
 .checkpoint-item,
 .artifact-item,
-.attempt-item,
 .browser-item {
   padding: 12px 0;
   border-bottom: 1px solid rgba(19, 33, 47, 0.08);
 }
 
 .artifact-item.active,
-.attempt-item.active,
 .browser-item.active {
   margin: 0 -10px;
   padding: 12px 10px;
@@ -503,7 +499,6 @@ textarea {
 
 .checkpoint-item:last-child,
 .artifact-item:last-child,
-.attempt-item:last-child,
 .browser-item:last-child {
   border-bottom: 0;
 }
@@ -690,8 +685,7 @@ textarea {
   .detail-actions,
   .doc-header,
   .checkpoint-item,
-  .artifact-item,
-  .attempt-item {
+  .artifact-item {
     align-items: start;
     flex-direction: column;
   }

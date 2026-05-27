@@ -32,6 +32,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CHALLENGES_DIR = ROOT / "challenges"
 INIT_SCRIPT = ROOT / "bin" / "init_challenge.sh"
+STATE_DOCS_SCRIPT = ROOT / "bin" / "state_docs.py"
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -185,6 +186,10 @@ def write_text_if_allowed(path: Path, content: str, overwrite: bool) -> None:
 
 def run_init(challenge_dir: Path) -> None:
     subprocess.run([str(INIT_SCRIPT), str(challenge_dir)], cwd=ROOT, check=True)
+
+
+def import_state_docs(challenge_dir: Path) -> None:
+    subprocess.run(["python3", str(STATE_DOCS_SCRIPT), "import-md", str(challenge_dir)], cwd=ROOT, check=True)
 
 
 def sniff_file(path: Path) -> str:
@@ -500,6 +505,7 @@ def main() -> int:
 
     title = safe_title(str(problem.get("title") or f"nssctf_{problem_id}"))
     challenge_dir = CHALLENGES_DIR / safe_group_path(args.group) / title
+    fresh_state_docs = not (challenge_dir / "facts.json").exists() and not (challenge_dir / "state.json").exists()
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
 
@@ -538,9 +544,11 @@ def main() -> int:
     write_text_if_allowed(
         challenge_dir / "FACTS.md",
         facts_markdown(problem_id, problem, local_files, main_binary, checksec_lines, attachment_error),
-        args.overwrite,
+        args.overwrite or fresh_state_docs,
     )
-    write_text_if_allowed(challenge_dir / "STATE.md", state_markdown(problem, main_binary, attachment_error), args.overwrite)
+    write_text_if_allowed(challenge_dir / "STATE.md", state_markdown(problem, main_binary, attachment_error), args.overwrite or fresh_state_docs)
+    if args.overwrite or fresh_state_docs:
+        import_state_docs(challenge_dir)
 
     ctf_files = challenge_dir / ".ctf-files"
     if ctf_files.exists():

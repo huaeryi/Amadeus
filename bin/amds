@@ -40,14 +40,15 @@ examples:
 
 behavior:
   - solve mode resolves the challenge under ./challenges/, including grouped paths like defcon/newnote
-  - guide mode is solve mode plus guided thinking gates
+  - solve mode reads prompts/cmds/solve.md, then the --workflow prompt under prompts/skills/
+  - guide mode reads prompts/cmds/guide.md, then the --workflow prompt under prompts/skills/
   - grouped challenges can live under ./challenges/<group>/<challenge>
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
   - learn mode runs the post-solve learning/reflection workflow for a challenge
   - exec mode accepts --workflow to force the solve workflow after fetch
-  - loads a workflow prompt template, defaulting to pwn for solve mode
-  - guided mode adds thinking gates so Codex teaches, asks, and waits before key pivots
+  - CTF category is selected by --workflow, defaulting to pwn for solve mode
+  - checkpoint rules are appended from prompts/cmds/checkpoint.md
   - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse
   - launches codex with the current CLI equivalent of "codex --yolo"
 EOF
@@ -106,6 +107,7 @@ render_template() {
     local escaped_challenge_group
     local escaped_challenge_group_prefix
     local escaped_group_option
+    local escaped_workflow
 
     [ -f "$template_path" ] || die "workflow template not found: $template_path"
     escaped_challenge_path="$(escape_sed_replacement "$challenge_path")"
@@ -116,9 +118,11 @@ render_template() {
     escaped_challenge_group="$(escape_sed_replacement "$challenge_group")"
     escaped_challenge_group_prefix="$(escape_sed_replacement "$challenge_group_prefix")"
     escaped_group_option="$(escape_sed_replacement "$group_option")"
+    escaped_workflow="$(escape_sed_replacement "$workflow")"
     output="$(sed \
         -e "s|{{challenge_path}}|${escaped_challenge_path}|g" \
         -e "s|{{root_name}}|${escaped_prompt_root}|g" \
+        -e "s|{{workflow}}|${escaped_workflow}|g" \
         -e "s|{{target_url}}|${escaped_target_url}|g" \
         -e "s|{{session}}|${escaped_session_id}|g" \
         -e "s|{{session_path}}|${escaped_session_path}|g" \
@@ -138,6 +142,8 @@ resolve_template() {
     local candidate
 
     for candidate in \
+        "${prompt_cmd_dir}/${name}.md" \
+        "${prompt_skill_dir}/${name}.md" \
         "${prompt_dir}/${name}.md" \
         "${legacy_prompt_dir}/${name}.md" \
         "${legacy_prompt_dir}/${name}.txt"
@@ -153,7 +159,9 @@ resolve_template() {
 
 template_exists() {
     local name="$1"
-    [ -f "${prompt_dir}/${name}.md" ] || \
+    [ -f "${prompt_cmd_dir}/${name}.md" ] || \
+        [ -f "${prompt_skill_dir}/${name}.md" ] || \
+        [ -f "${prompt_dir}/${name}.md" ] || \
         [ -f "${legacy_prompt_dir}/${name}.md" ] || \
         [ -f "${legacy_prompt_dir}/${name}.txt" ]
 }
@@ -171,7 +179,7 @@ find_fetched_challenge() {
             dirname "$file"
             return 0
         fi
-    done < <(find "${root_dir}/challenges" -mindepth 2 -type f \( -name description.md -o -name FACTS.md \) | sort)
+    done < <(find "${root_dir}/challenges" -mindepth 2 -type f \( -name description.md -o -name facts.json \) | sort)
 
     return 1
 }
@@ -183,8 +191,11 @@ infer_workflow_from_challenge() {
     if [ -f "${challenge_dir}/description.md" ]; then
         category="$(sed -n 's/^- Category:[[:space:]]*//p' "${challenge_dir}/description.md" | head -n 1)"
     fi
-    if [ -z "$category" ] && [ -f "${challenge_dir}/FACTS.md" ]; then
-        category="$(sed -n 's/^- category:[[:space:]]*//p' "${challenge_dir}/FACTS.md" | head -n 1)"
+    if [ -z "$category" ] && [ -f "${challenge_dir}/metadata.json" ]; then
+        category="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("challenge_type",""))' "${challenge_dir}/metadata.json" 2>/dev/null || true)"
+    fi
+    if [ -z "$category" ] && [ -f "${challenge_dir}/facts.json" ]; then
+        category="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); print(next((str(item).split(":",1)[1].strip() for section in data.get("sections",[]) for item in section.get("items",[]) if str(item).lower().startswith("category:")), ""))' "${challenge_dir}/facts.json" 2>/dev/null || true)"
     fi
 
     case "$(printf '%s' "${category:-}" | tr '[:upper:]' '[:lower:]')" in
@@ -204,6 +215,8 @@ root_name="$(basename "${root_dir}")"
 workspace_dir="$root_dir"
 prompt_root="."
 prompt_dir="${root_dir}/prompts"
+prompt_cmd_dir="${prompt_dir}/cmds"
+prompt_skill_dir="${prompt_dir}/skills"
 legacy_prompt_dir="${root_dir}/pts"
 
 print_prompt=0
@@ -432,9 +445,9 @@ case "$mode" in
                 printf '\n'
             else
                 if [ "$workflow_explicit" = "1" ]; then
-                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then %q --mode solve --workflow %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow"
+                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then %q --mode solve --workflow %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow"
                 else
-                    printf 'solve_command: resolved after fetch by matching Source/FACTS URL under %s/challenges, then infer workflow from description.md/FACTS.md\n' "$prompt_root"
+                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then infer workflow from description.md/metadata.json/facts.json\n' "$prompt_root"
                 fi
             fi
             exit 0
@@ -468,13 +481,26 @@ if [ "$mode" = "exec" ]; then
     exit 0
 fi
 
-mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
-
-if [ "$display_mode" = "guide" ]; then
-    guided_template_path="$(resolve_template "guided")"
-    mapfile -t guided_lines < <(render_template "$guided_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
+if [ "$mode" = "solve" ] && [ "$display_mode" != "learn" ]; then
+    entry_template_path="$(resolve_template "$display_mode")"
+    state_docs_template_path="$(resolve_template "state_docs")"
+    capabilities_template_path="$(resolve_template "capabilities")"
+    checkpoint_template_path="$(resolve_template "checkpoint")"
+    mapfile -t prompt_lines < <(render_template "$entry_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
+    mapfile -t workflow_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
+    mapfile -t state_docs_lines < <(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
+    mapfile -t capabilities_lines < <(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
+    mapfile -t checkpoint_lines < <(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
     prompt_lines+=("")
-    prompt_lines+=("${guided_lines[@]}")
+    prompt_lines+=("${workflow_lines[@]}")
+    prompt_lines+=("")
+    prompt_lines+=("${state_docs_lines[@]}")
+    prompt_lines+=("")
+    prompt_lines+=("${capabilities_lines[@]}")
+    prompt_lines+=("")
+    prompt_lines+=("${checkpoint_lines[@]}")
+else
+    mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
 fi
 
 if [ ${#append_lines[@]} -gt 0 ]; then

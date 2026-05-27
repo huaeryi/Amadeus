@@ -32,6 +32,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CHALLENGES_DIR = ROOT / "challenges"
 INIT_SCRIPT = ROOT / "bin" / "init_challenge.sh"
+STATE_DOCS_SCRIPT = ROOT / "bin" / "state_docs.py"
 BASE_URL = "https://buuoj.cn"
 
 DEFAULT_HEADERS = {
@@ -333,6 +334,10 @@ def run_init(challenge_dir: Path) -> None:
     subprocess.run([str(INIT_SCRIPT), str(challenge_dir)], cwd=ROOT, check=True)
 
 
+def import_state_docs(challenge_dir: Path) -> None:
+    subprocess.run(["python3", str(STATE_DOCS_SCRIPT), "import-md", str(challenge_dir)], cwd=ROOT, check=True)
+
+
 def sniff_file(path: Path) -> str:
     try:
         out = subprocess.check_output(["file", str(path)], text=True, stderr=subprocess.DEVNULL)
@@ -357,7 +362,7 @@ def is_probably_elf(path: Path) -> bool:
 
 
 def challenge_artifact_paths(challenge_dir: Path) -> list[Path]:
-    ignored_dirs = {"checkpoints", "attempts", "__pycache__"}
+    ignored_dirs = {"__pycache__"}
     paths: list[Path] = []
     for path in challenge_dir.rglob("*"):
         if not path.is_file():
@@ -365,7 +370,18 @@ def challenge_artifact_paths(challenge_dir: Path) -> list[Path]:
         rel = path.relative_to(challenge_dir)
         if rel.parts and rel.parts[0] in ignored_dirs:
             continue
-        if path.name in {"STATE.md", "FACTS.md", "description.md", "metadata.json", ".ctf-files", ".pwnrun"}:
+        if path.name in {
+            "STATE.md",
+            "FACTS.md",
+            "CAPABILITIES.md",
+            "state.json",
+            "facts.json",
+            "capabilities.json",
+            "description.md",
+            "metadata.json",
+            ".ctf-files",
+            ".pwnrun",
+        }:
             continue
         paths.append(path)
     return sorted(paths, key=lambda p: str(p.relative_to(challenge_dir)))
@@ -703,6 +719,8 @@ def write_outputs(
         overwrite,
     )
     write_text_if_allowed(challenge_dir / "STATE.md", state_markdown(problem, main_binary, attachment_error), overwrite)
+    if overwrite:
+        import_state_docs(challenge_dir)
 
     ctf_files = challenge_dir / ".ctf-files"
     if ctf_files.exists():
@@ -715,6 +733,7 @@ def write_outputs(
 def write_partial_failure(title_hint: str, source_url: str, error: str, overwrite: bool, group: str) -> Path:
     title = safe_title(title_hint or "buuctf_fetch_failed")
     challenge_dir = CHALLENGES_DIR / safe_group_path(group) / title
+    fresh_state_docs = not (challenge_dir / "facts.json").exists() and not (challenge_dir / "state.json").exists()
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
     problem = {
@@ -724,7 +743,7 @@ def write_partial_failure(title_hint: str, source_url: str, error: str, overwrit
         "connection_info": "",
         "tags": [],
     }
-    write_outputs("", problem, source_url, challenge_dir, [], None, error, overwrite, "failed")
+    write_outputs("", problem, source_url, challenge_dir, [], None, error, overwrite or fresh_state_docs, "failed")
     return challenge_dir
 
 
@@ -767,6 +786,7 @@ def main() -> int:
 
     title = safe_title(str(problem.get("name") or problem.get("title") or title_hint or f"buuctf_{challenge_id}"))
     challenge_dir = CHALLENGES_DIR / safe_group_path(args.group) / title
+    fresh_state_docs = not (challenge_dir / "facts.json").exists() and not (challenge_dir / "state.json").exists()
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
 
@@ -792,7 +812,7 @@ def main() -> int:
     update_pwnrun(challenge_dir, main_binary)
 
     fetch_status = "fetched" if not attachment_error else "partial"
-    write_outputs(challenge_id, problem, source_url, challenge_dir, local_files, main_binary, attachment_error, args.overwrite, fetch_status)
+    write_outputs(challenge_id, problem, source_url, challenge_dir, local_files, main_binary, attachment_error, args.overwrite or fresh_state_docs, fetch_status)
 
     if args.print_dir:
         print(challenge_dir)

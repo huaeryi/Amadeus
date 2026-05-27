@@ -19,17 +19,19 @@ Amadeus/
 核心文件：
 
 - `bin/amds`：Codex 启动器，负责 fetch / solve / exec / learn 和 workflow prompt 渲染。
-- `bin/init_challenge.sh`：初始化题目目录，创建 `STATE.md`、`FACTS.md`、`metadata.json`、`.ctf-files`、`.pwnrun`、`checkpoints/`、`attempts/`。
-- `bin/checkpoint.sh`：按 `.ctf-files` 保存一次具名 checkpoint，并写入 checkpoint graph。
-- `bin/restore.sh`：从 checkpoint 恢复被跟踪文件。
+- `bin/init_challenge.sh`：初始化题目目录，创建 `state.json`、`facts.json`、生成的 `STATE.md`/`FACTS.md`、`capabilities.json`、`CAPABILITIES.md`、`metadata.json`、`.ctf-files`、`.pwnrun`，并在题目目录内创建 git 初始 checkpoint。
+- `bin/state_docs.py`：初始化、校验和渲染 facts/state JSON；`FACTS.md` 和 `STATE.md` 只能由它生成。
+- `bin/capabilities.py`：初始化、校验和渲染 capability JSON；`CAPABILITIES.md` 只能由它生成。
+- `bin/checkpoint.sh`：在题目目录 git 中创建具名 checkpoint commit。
+- `bin/restore.sh`：从 git checkpoint commit 恢复 tracked files。
 - `bin/run_pwn.sh`：pwn 题统一运行入口，支持 local / remote / patched / info。
-- `prompts/*.md`：不同题型的 agent 工作流约束。
-- `prompts/guided.md`：主动学习模式追加的教练协议。
-- `prompts/learn.md`：post-solve 反思和学习入口。
+- `prompts/cmds/*.md`：solve / guide / fetch / learn / checkpoint 等命令入口和通用策略。
+- `prompts/skills/*.md`：pwn / web / crypto / reverse / misc 等题型 workflow。
+- `prompts/cmds/learn.md`：post-solve 反思和学习入口。
 - `prompts/learn/`：各题型的长期学习规则、反思清单和学习侧重点。
 - `prompts/learn/LEARNING_LOG.md`：每次 `amds learn` 的长期学习变更日志。
-- `templates/STATE.md`：当前阶段、下一步、失败分支、checkpoint 计划。
-- `templates/FACTS.md`：只记录已经验证的事实。
+- `templates/state.json`：当前阶段、下一步、失败路线、checkpoint 计划。
+- `templates/facts.json`：只记录已经验证的事实。
 - `webui/server.py`：零依赖 Python 后端，提供静态页面和 JSON API。
 
 ## 快速开始
@@ -98,7 +100,7 @@ bin/amds [--mode solve|guide|fetch|exec|learn] [--workflow pwn|web|crypto|revers
 
 ### solve
 
-`solve` 解析 `challenges/<name>`、`challenges/<group>/<name>` 或 challenge 路径，加载对应 `prompts/<workflow>.md`。默认 workflow 是 `pwn`。
+`solve` 解析 `challenges/<name>`、`challenges/<group>/<name>` 或 challenge 路径，先加载 `prompts/cmds/solve.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `pwn`。
 
 ```bash
 bin/amds --mode solve --workflow pwn newnote
@@ -111,7 +113,7 @@ bin/amds newnote
 
 ### guide
 
-`guide` 和 `solve` 走同一套解题流程，区别是自动追加 `prompts/guided.md`，让 agent 在关键分叉前先让你判断并做复盘记录。
+`solve` 先读 `prompts/cmds/solve.md`，`guide` 先读 `prompts/cmds/guide.md`。CTF 方向由 `--workflow` 决定，例如 `--workflow pwn` 会再加载 `prompts/skills/pwn.md`；checkpoint 规则统一追加 `prompts/cmds/checkpoint.md`。
 
 ```bash
 bin/amds guide pwn newnote
@@ -143,7 +145,7 @@ bin/amds --workflow pwn newnote -- --search -m gpt-5.5
 bin/amds guide pwn newnote
 ```
 
-`guide` 会追加 `prompts/guided.md`：agent 在关键分叉前会先让你判断，要求解释命令输出如何改变结论，并在 `STATE.md` 维护 `Your turn` 问题，在 `wp.md` 维护 `Learning checkpoints`。比赛冲刺时用 `solve` 或普通模式，训练和复盘时用 `guide`。
+`guide` 使用 `prompts/cmds/guide.md` 作为入口：agent 在关键分叉前会先让你判断，要求解释命令输出如何改变结论，并在 `state.json` 维护 `your_turn` 问题，渲染到 `STATE.md`，在 `wp.md` 维护 `Learning checkpoints`。比赛冲刺时用 `solve`，训练和复盘时用 `guide`。
 
 ### fetch
 
@@ -202,13 +204,15 @@ BUUCTF_COOKIE='...' script/fetch_buuctf.py 'https://buuoj.cn/challenges#刮开�
 challenges/baby_tcache/
 ├── STATE.md             # 解题状态和下一步
 ├── FACTS.md             # 已确认事实
+├── state.json           # 机器可读状态 source of truth
+├── facts.json           # 机器可读事实 source of truth
+├── capabilities.json    # 机器可读 exploitation capability source of truth
+├── CAPABILITIES.md      # 从 capabilities.json 生成的人类可读视图
 ├── metadata.json        # 平台、题目、标签、附件信息
-├── .ctf-files           # checkpoint 跟踪清单
+├── .ctf-files           # 需要重点关注的解题文件清单
 ├── .pwnrun              # pwn 运行配置
 ├── exp.py               # 最终 exploit 或 solve 脚本
-├── wp.md                # 最终 writeup
-├── attempts/            # 失败分支和临时路线记录
-└── checkpoints/         # checkpoint 快照和图数据
+└── wp.md                # 最终 writeup
 ```
 
 也可以按比赛分组：
@@ -217,15 +221,35 @@ challenges/baby_tcache/
 challenges/defcon/baby_tcache/
 ```
 
-分组目录只是容器，真正的 challenge 目录仍然是包含 `STATE.md`、`FACTS.md` 等文件的叶子目录。
+分组目录只是容器，真正的 challenge 目录仍然是包含 `state.json`、`facts.json` 等文件的叶子目录。
 
 约定：
 
-- `FACTS.md` 只写已经被文件、运行结果、调试器或 exploit 输出验证的事实。
-- `STATE.md` 写当前判断、下一步、候选路线、失败路线和开放问题。
-- `.ctf-files` 每行一个相对文件路径，checkpoint 只保存这些文件。
-- `attempts/` 用于记录失败路线，避免 agent 在脏状态上反复修补。
+- `facts.json` 只写已经被文件、运行结果、调试器或 exploit 输出验证的事实；`FACTS.md` 是生成视图，不要手写。
+- `state.json` 写当前判断、下一步、候选路线、失败路线和开放问题；`STATE.md` 是生成视图，不要手写。
+- `capabilities.json` 写当前已获得、观察到、猜测中、被阻塞、作为目标的能力；所有 capability 必须有 env 和 evidence。
+- `CAPABILITIES.md` 是生成文件，不要手写；更新 JSON 后运行 `bin/capabilities.py render <challenge_dir>`。
+- checkpoint 使用题目目录内的 git commit；`.ctf-files` 仍作为重要解题文件清单保留。
 - pwn 题优先让 `exp.py` 读取 `run_pwn.sh` 导出的 `PWN_*` 环境变量。
+
+## Capabilities
+
+`capabilities.json` 记录 exploit 过程中已经获得、观察到、猜测中、被阻塞、正在作为目标的能力，供后续 planner 选择下一步 exploit target。它是 source of truth，`CAPABILITIES.md` 只是生成视图。
+
+```bash
+bin/capabilities.py init challenges/baby_tcache
+bin/capabilities.py validate challenges/baby_tcache
+bin/capabilities.py render challenges/baby_tcache
+```
+
+约束：
+
+- 每个 capability 必须有 `env`，可用值包括 `local`、`native`、`docker`、`patched`、`remote`。
+- `local` verified 不等于 `remote` verified；跨环境迁移必须重新验证。
+- 每个 capability 必须有 evidence，至少包含简短说明，并提供 artifact 或 command。
+- `verified` 必须有 evidence 和 verification。
+- `blocked` 必须有 blocked_by，并在 reason 或 summary 中说明阻塞原因。
+- 更新 `capabilities.json` 后运行 `bin/capabilities.py render <challenge_dir>`，不要手写 `CAPABILITIES.md`。
 
 ## Checkpoint
 
@@ -243,17 +267,16 @@ bin/checkpoint.sh libc-base-confirmed challenges/baby_tcache
 
 ```bash
 bin/restore.sh latest challenges/baby_tcache
-bin/restore.sh 20260519-120000-primitive-confirmed challenges/baby_tcache
+bin/restore.sh <commit-hash> challenges/baby_tcache
 ```
 
 实现细节：
 
-- 每个 checkpoint 位于 `checkpoints/<timestamp>-<name>/`。
-- `files/` 下保存 `.ctf-files` 中列出的文件快照。
-- `META.txt` 保存名称、创建时间、父 checkpoint 等元数据。
-- `checkpoints/latest` 指向最新 checkpoint。
-- `checkpoints/.amadeus-head` 记录当前 head。
-- `checkpoints/.checkpoint-graph.json` 记录 checkpoint 节点和父子关系，供前端画图。
+- 每个 checkpoint 是题目目录 git 中的一个 commit。
+- `init_challenge.sh` 首次初始化时创建 `[ckpt0 <题目名>]`。
+- `checkpoint.sh <name>` 后续创建 `[ckptN <name>]`。
+- webui 从 `git log` 读取 checkpoint 列表和父子关系。
+- `restore.sh <commit>` 使用 git 从指定 checkpoint 恢复 tracked files。
 
 推荐策略：
 
@@ -290,11 +313,11 @@ http://127.0.0.1:9999/
 
 - 题目列表、搜索和基础状态展示。
 - 创建题目并自动初始化。
-- 编辑 `STATE.md`、`FACTS.md`、`metadata.json`、`.ctf-files`、`.pwnrun`。
+- 编辑 `state.json`、`facts.json`、`capabilities.json`、`metadata.json`、`.ctf-files`、`.pwnrun`；保存 JSON 后自动渲染对应 Markdown。
 - 展示 `run_pwn.sh info` 的解析结果。
 - 创建和恢复 checkpoint。
-- 显示 checkpoint graph，包括 latest / head 标记。
-- 预览顶层文件、`attempts/` 记录和二进制 hex dump。
+- 基于 git commit 历史显示 checkpoint graph，包括 latest / head 标记。
+- 预览顶层文件和二进制 hex dump。
 - 通过文件浏览器查看题目目录中的嵌套文件。
 
 主要 API：
@@ -304,7 +327,7 @@ http://127.0.0.1:9999/
 - `POST /api/challenges`
 - `POST /api/challenges/<name>/init`
 - `GET /api/challenges/<name>/run-info`
-- `PUT /api/challenges/<name>/document?name=STATE.md`
+- `PUT /api/challenges/<name>/document?name=state.json`
 - `POST /api/challenges/<name>/checkpoints`
 - `POST /api/challenges/<name>/restore`
 - `GET /api/challenges/<name>/file?path=exp.py`
@@ -343,7 +366,7 @@ pwn 题建议流程：
 
 1. `bin/init_challenge.sh <challenge_dir>`
 2. 读取附件并确认 binary、libc、ld、patched binary、`exp_template.py`
-3. 用 `FACTS.md` 固化事实，用 `STATE.md` 规划路线
+3. 用 `facts.json` 固化事实，用 `state.json` 规划路线，并渲染 `FACTS.md` / `STATE.md`
 4. 用 `bin/run_pwn.sh <challenge_dir> info` 检查 `.pwnrun`
 5. 在稳定 primitive 或 leak 后创建 checkpoint
 6. 高风险 pivot 前再创建 checkpoint
@@ -385,7 +408,7 @@ libc 策略：
 
 - [ ] Plan 模式：在正式 solve 前生成可审阅计划，支持用户确认后再执行。
 - [ ] subagent 集成
-- [ ] Checkpoint diff：前端展示 checkpoint 之间的文件差异。
-- [ ] Checkpoint branch：更明确地支持多分支路线和非线性回滚。 (一个想法是git)
+- [ ] Checkpoint diff：前端展示 git checkpoint 之间的文件差异。
+- [ ] Checkpoint branch：更明确地支持多分支路线和非线性回滚。
 - [ ] 前端功能完善，Web日志
 - [ ] 更完整的平台抓取：扩展 NSSCTF / BUUCTF 以外的平台适配。

@@ -4,13 +4,13 @@
 
 先读：
 - `{{root_name}}/AGENTS.md`
-- `{{challenge_path}}/STATE.md`
-- `{{challenge_path}}/FACTS.md`
+- `{{challenge_path}}/state.json`
+- `{{challenge_path}}/facts.json`
+- `{{challenge_path}}/STATE.md` 和 `{{challenge_path}}/FACTS.md`，仅作为 JSON 渲染视图辅助阅读
 - `{{challenge_path}}/wp.md`，如果存在
 - `{{challenge_path}}/exp.py` 或 `solve.py`，如果存在
-- `{{challenge_path}}/attempts/`，如果存在
 - `{{challenge_path}}/REFLECTION.md`，如果存在
-- `{{challenge_path}}/checkpoints/` 中的 `META.txt` 和 `.checkpoint-graph.json`，如果存在
+- 题目目录 git 历史，例如 `git -C {{challenge_path}} log --oneline --decorate --all`，如果存在
 
 Session 输入：
 - session id: `{{session}}`
@@ -24,7 +24,7 @@ Session 输入：
 - 如果指定 session 但目录不存在或没有 transcript，继续从 challenge 文件学习，并在 `REFLECTION.md` 和 `LEARNING_LOG.md` 的 `skipped` 中记录 session 不可用。
 - 不要把 session 中的完整对话复制进长期学习文件，只提炼最简单有效的过程规则。
 
-根据 `metadata.json`、`description.md`、`FACTS.md` 或 `STATE.md` 判断题型，然后只修改对应文件：
+根据 `metadata.json`、`description.md`、`facts.json` 或 `state.json` 判断题型，然后只修改对应文件：
 - pwn: `{{root_name}}/prompts/learn/pwn_learning.md`
 - web: `{{root_name}}/prompts/learn/web_learning.md`
 - crypto: `{{root_name}}/prompts/learn/crypto_learning.md`

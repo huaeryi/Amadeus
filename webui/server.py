@@ -19,12 +19,12 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR / "webui" / "static"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
-CORE_DOCUMENTS = ("STATE.md", "FACTS.md", "metadata.json", ".ctf-files", ".pwnrun")
+CORE_DOCUMENTS = ("state.json", "STATE.md", "facts.json", "FACTS.md", "capabilities.json", "CAPABILITIES.md", "metadata.json", ".ctf-files", ".pwnrun")
+GENERATED_DOCUMENTS = {"STATE.md", "FACTS.md", "CAPABILITIES.md"}
 CHALLENGE_NAME_RE = re.compile(r"^[^\\\x00]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
 BINARY_PREVIEW_LIMIT = 4096
-INTERNAL_CHECKPOINT_FILES = {".amadeus-head"}
-CHECKPOINT_GRAPH_FILE = ".checkpoint-graph.json"
+CHECKPOINT_SUBJECT_RE = re.compile(r"^\[ckpt(?P<number>\d+)\s+(?P<name>.+)\]$")
 
 
 @dataclass
@@ -159,36 +159,6 @@ def derive_solve_status(stage: str) -> str:
     return "unsolved"
 
 
-def parse_meta_file(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-
-    meta: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        meta[key.strip()] = value.strip()
-    return meta
-
-
-def read_checkpoint_graph(checkpoints_dir: Path) -> dict[str, Any] | None:
-    graph_path = checkpoints_dir / CHECKPOINT_GRAPH_FILE
-    if not graph_path.exists():
-        return None
-
-    try:
-        graph = json.loads(graph_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(graph, dict):
-        return None
-    graph.setdefault("nodes", [])
-    graph.setdefault("edges", [])
-    return graph
-
-
 def run_script(script_name: str, *args: str) -> dict[str, Any]:
     command = ["bash", str(BIN_DIR / script_name), *args]
     result = subprocess.run(
@@ -206,6 +176,63 @@ def run_script(script_name: str, *args: str) -> dict[str, Any]:
     if result.returncode != 0:
         raise ApiError(400, f"{script_name} failed", payload)
     return payload
+
+
+def render_capabilities(path: Path) -> dict[str, Any]:
+    result = subprocess.run(
+        ["python3", str(BIN_DIR / "capabilities.py"), "render", str(path)],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+    )
+    payload = {
+        "command": ["python3", str(BIN_DIR / "capabilities.py"), "render", str(path)],
+        "code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+    if result.returncode != 0:
+        raise ApiError(400, "capabilities render failed", payload)
+    return payload
+
+
+def render_state_docs(path: Path) -> dict[str, Any]:
+    result = subprocess.run(
+        ["python3", str(BIN_DIR / "state_docs.py"), "render", str(path)],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+    )
+    payload = {
+        "command": ["python3", str(BIN_DIR / "state_docs.py"), "render", str(path)],
+        "code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+    if result.returncode != 0:
+        raise ApiError(400, "state/facts render failed", payload)
+    return payload
+
+
+def run_git(path: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        ["git", "-C", str(path), *args],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+    )
+    if check and result.returncode != 0:
+        raise ApiError(
+            400,
+            "git command failed",
+            {
+                "command": ["git", "-C", str(path), *args],
+                "code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        )
+    return result
 
 
 def resolve_path_in_challenge(challenge_name: str, relative_path: str) -> tuple[Path, Path]:
@@ -346,136 +373,75 @@ def collect_artifacts(path: Path) -> list[dict[str, Any]]:
     return artifacts
 
 
-def collect_attempts(path: Path) -> list[dict[str, Any]]:
-    attempts_dir = path / "attempts"
-    if not attempts_dir.exists():
-        return []
-
-    attempts: list[dict[str, Any]] = []
-    for entry in sorted(attempts_dir.iterdir(), key=lambda item: item.name.lower(), reverse=True):
-        if not entry.is_file():
-            continue
-        try:
-            stat = entry.stat()
-        except OSError:
-            continue
-        attempts.append(
-            {
-                "name": entry.name,
-                "path": f"attempts/{entry.name}",
-                "size": stat.st_size,
-                "modified_at": isoformat_from_timestamp(stat.st_mtime),
-                "previewable": True,
-            }
-        )
-    return attempts
-
-
 def collect_checkpoints(path: Path) -> list[dict[str, Any]]:
-    checkpoints_dir = path / "checkpoints"
-    latest_name = None
-    head_name = None
-    latest_link = checkpoints_dir / "latest"
-    head_file = checkpoints_dir / ".amadeus-head"
-    if latest_link.is_symlink():
-        latest_name = latest_link.resolve().name
-    if head_file.exists():
-        head_name = head_file.read_text(encoding="utf-8").strip() or None
-
-    graph = read_checkpoint_graph(checkpoints_dir)
-    if graph:
-        node_map: dict[str, dict[str, Any]] = {}
-        for node in graph.get("nodes", []):
-            if not isinstance(node, dict):
-                continue
-            node_id = str(node.get("id", "")).strip()
-            if not node_id:
-                continue
-            entry_dir = checkpoints_dir / node_id
-            node_map[node_id] = {
-                "id": node_id,
-                "name": str(node.get("name", node_id)),
-                "created_at": str(node.get("created_at", "")) or isoformat_from_timestamp(entry_dir.stat().st_mtime if entry_dir.exists() else path.stat().st_mtime),
-                "target_dir": str(node.get("target_dir", ".")),
-                "parent_id": str(node.get("parent_id", "")).strip() or None,
-            }
-
-        for edge in graph.get("edges", []):
-            if not isinstance(edge, dict):
-                continue
-            child = str(edge.get("child", "")).strip()
-            parent = str(edge.get("parent", "")).strip() or None
-            if child in node_map:
-                node_map[child]["parent_id"] = parent
-
-        checkpoints = []
-        for entry in sorted(checkpoints_dir.iterdir(), key=lambda item: item.name.lower()):
-            if not entry.is_dir() or entry.name == "latest":
-                continue
-            meta = parse_meta_file(entry / "META.txt")
-            node = node_map.get(entry.name, {})
-            try:
-                stat = entry.stat()
-            except OSError:
-                continue
-            checkpoints.append(
-                {
-                    "id": meta.get("checkpoint_id", node.get("id", entry.name)),
-                    "name": meta.get("name", node.get("name", entry.name)),
-                    "created_at": meta.get("created_at", node.get("created_at", isoformat_from_timestamp(stat.st_mtime))),
-                    "target_dir": meta.get("target_dir", node.get("target_dir", ".")),
-                    "parent_id": meta.get("parent_checkpoint", node.get("parent_id", None)) or None,
-                    "is_latest": entry.name == latest_name,
-                    "is_head": entry.name == head_name,
-                }
-            )
-
-        checkpoints.sort(key=lambda checkpoint: (checkpoint["created_at"], checkpoint["id"]), reverse=True)
-        return checkpoints
-
     checkpoints: list[dict[str, Any]] = []
-    if not checkpoints_dir.exists():
+    if not (path / ".git").exists():
         return checkpoints
 
-    for entry in sorted(checkpoints_dir.iterdir(), key=lambda item: item.name.lower()):
-        if not entry.is_dir() or entry.name == "latest":
+    head_result = run_git(path, "rev-parse", "--verify", "HEAD")
+    if head_result.returncode != 0:
+        return checkpoints
+    head_hash = head_result.stdout.strip()
+
+    log_result = run_git(path, "log", "--date=unix", "--format=%H%x1f%h%x1f%P%x1f%ct%x1f%s")
+    if log_result.returncode != 0:
+        return checkpoints
+
+    for line in log_result.stdout.splitlines():
+        parts = line.split("\x1f", 4)
+        if len(parts) != 5:
             continue
-        meta = parse_meta_file(entry / "META.txt")
-        try:
-            stat = entry.stat()
-        except OSError:
+        full_hash, short_hash, parent_hashes, created_timestamp, subject = parts
+        match = CHECKPOINT_SUBJECT_RE.match(subject)
+        if not match:
             continue
         checkpoints.append(
             {
-                "id": meta.get("checkpoint_id", entry.name),
-                "name": meta.get("name", entry.name),
-                "created_at": meta.get("created_at", isoformat_from_timestamp(stat.st_mtime)),
-                "target_dir": meta.get("target_dir", "."),
-                "parent_id": meta.get("parent_checkpoint", "").strip() or None,
-                "is_latest": entry.name == latest_name,
-                "is_head": entry.name == head_name,
+                "id": full_hash,
+                "short_id": short_hash,
+                "name": match.group("name"),
+                "number": int(match.group("number")),
+                "subject": subject,
+                "created_at": isoformat_from_timestamp(float(created_timestamp)),
+                "target_dir": str(path.relative_to(ROOT_DIR)),
+                "parent_id": parent_hashes.split()[0] if parent_hashes.strip() else None,
+                "is_latest": False,
+                "is_head": full_hash == head_hash,
             }
         )
 
-    checkpoints.sort(key=lambda checkpoint: (checkpoint["created_at"], checkpoint["id"]))
+    if checkpoints:
+        checkpoints[0]["is_latest"] = True
+
+    checkpoint_ids = {checkpoint["id"] for checkpoint in checkpoints}
     previous_id: str | None = None
-    known_ids = {checkpoint["id"] for checkpoint in checkpoints}
-    for checkpoint in checkpoints:
-        parent_id = checkpoint["parent_id"]
-        if parent_id and parent_id in known_ids:
-            previous_id = checkpoint["id"]
-            continue
-        checkpoint["parent_id"] = previous_id
+    for checkpoint in reversed(checkpoints):
+        if checkpoint["parent_id"] not in checkpoint_ids:
+            checkpoint["parent_id"] = previous_id
         previous_id = checkpoint["id"]
 
-    checkpoints.sort(key=lambda checkpoint: (checkpoint["created_at"], checkpoint["id"]), reverse=True)
-
-    if head_name is None and latest_name is not None:
-        for checkpoint in checkpoints:
-            if checkpoint["id"] == latest_name:
-                checkpoint["is_head"] = True
-
     return checkpoints
+
+
+def build_checkpoint_graph(checkpoints: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "nodes": [
+            {
+                "id": checkpoint["id"],
+                "name": checkpoint["name"],
+                "created_at": checkpoint["created_at"],
+                "target_dir": checkpoint.get("target_dir", "."),
+                "parent_id": checkpoint.get("parent_id"),
+                "short_id": checkpoint.get("short_id"),
+            }
+            for checkpoint in checkpoints
+        ],
+        "edges": [
+            {"parent": checkpoint["parent_id"], "child": checkpoint["id"]}
+            for checkpoint in checkpoints
+            if checkpoint.get("parent_id")
+        ],
+    }
 
 
 def parse_run_info(path: Path) -> dict[str, Any]:
@@ -505,7 +471,6 @@ def parse_run_info(path: Path) -> dict[str, Any]:
 def challenge_summary(path: Path) -> dict[str, Any]:
     artifacts = collect_artifacts(path)
     checkpoints = collect_checkpoints(path)
-    attempts = collect_attempts(path)
     state_stage = read_state_stage(path)
     solve_status = derive_solve_status(state_stage)
     metadata = read_challenge_metadata(path)
@@ -529,7 +494,6 @@ def challenge_summary(path: Path) -> dict[str, Any]:
         "solve_status": solve_status,
         "core_files": core_files,
         "checkpoint_count": len(checkpoints),
-        "attempt_count": len(attempts),
         "artifact_count": len(artifacts),
         "updated_at": updated_at,
         "has_exp": (path / "exp.py").exists(),
@@ -545,13 +509,12 @@ def challenge_detail(name: str) -> dict[str, Any]:
         raise ApiError(400, f"Challenge path is not a directory: {name}")
 
     documents = {document: read_text_if_exists(path / document) for document in CORE_DOCUMENTS}
-    checkpoints_dir = path / "checkpoints"
+    checkpoints = collect_checkpoints(path)
     return {
         "summary": challenge_summary(path),
         "documents": documents,
-        "checkpoints": collect_checkpoints(path),
-        "checkpoint_graph": read_checkpoint_graph(checkpoints_dir),
-        "attempts": collect_attempts(path),
+        "checkpoints": checkpoints,
+        "checkpoint_graph": build_checkpoint_graph(checkpoints),
         "artifacts": collect_artifacts(path),
     }
 
@@ -687,13 +650,34 @@ class AmadeusHandler(SimpleHTTPRequestHandler):
                         return
 
                     if method == "PUT":
+                        if document_name in GENERATED_DOCUMENTS:
+                            raise ApiError(400, f"{document_name} is generated from JSON; edit the corresponding JSON file instead.")
                         payload = self.read_json()
                         content = str(payload.get("content", ""))
+                        old_content = read_text_if_exists(document_path)
                         document_path.write_text(content, encoding="utf-8")
+                        render_result = None
+                        if document_name == "capabilities.json":
+                            try:
+                                render_result = render_capabilities(path)
+                            except ApiError:
+                                document_path.write_text(old_content, encoding="utf-8")
+                                if old_content:
+                                    render_capabilities(path)
+                                raise
+                        if document_name in {"facts.json", "state.json"}:
+                            try:
+                                render_result = render_state_docs(path)
+                            except ApiError:
+                                document_path.write_text(old_content, encoding="utf-8")
+                                if old_content:
+                                    render_state_docs(path)
+                                raise
                         self.send_json(
                             200,
                             {
                                 "message": f"Saved {document_name}",
+                                "render_result": render_result,
                                 "challenge": challenge_detail(name),
                             },
                         )

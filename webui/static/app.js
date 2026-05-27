@@ -75,8 +75,7 @@ function previewablePaths(detail) {
   const artifactPaths = detail.artifacts
     .filter((artifact) => artifact.previewable)
     .map((artifact) => artifact.path);
-  const attemptPaths = detail.attempts.filter((attempt) => attempt.previewable).map((attempt) => attempt.path);
-  return [...artifactPaths, ...attemptPaths];
+  return artifactPaths;
 }
 
 function preferredPreviewPath(detail) {
@@ -131,6 +130,7 @@ function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
     if (nodeById.has(id)) {
       const node = nodeById.get(id);
       node.name = String(rawNode?.name || node.name || checkpoint.name || id);
+      node.short_id = String(rawNode?.short_id || node.short_id || checkpoint.short_id || "").trim();
       node.created_at = String(rawNode?.created_at || node.created_at || checkpoint.created_at || "");
       node.target_dir = String(rawNode?.target_dir || node.target_dir || checkpoint.target_dir || ".");
       node.parent_id = String(rawNode?.parent_id || node.parent_id || checkpoint.parent_id || "").trim() || null;
@@ -141,6 +141,7 @@ function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
 
     nodeById.set(id, {
       id,
+      short_id: String(rawNode?.short_id || checkpoint.short_id || "").trim(),
       name: String(rawNode?.name || checkpoint.name || id),
       created_at: String(rawNode?.created_at || checkpoint.created_at || ""),
       target_dir: String(rawNode?.target_dir || checkpoint.target_dir || "."),
@@ -326,12 +327,13 @@ function renderCheckpointGraph(checkpointGraph, checkpoints) {
         .filter(Boolean)
         .join(" · ");
       const created = node.created_at ? node.created_at.slice(5, 16).replace("T", " ") : "";
+      const commit = node.short_id || node.id.slice(0, 7);
 
       return `
         <g class="${classes}" transform="translate(${x}, ${y})">
           <circle class="checkpoint-svg-dot" r="8"></circle>
           <text class="checkpoint-svg-title" x="18" y="-2">${escapeHtml(node.name)}</text>
-          <text class="checkpoint-svg-meta" x="18" y="14">${escapeHtml(created)}${badges ? ` · ${escapeHtml(badges)}` : ""}</text>
+          <text class="checkpoint-svg-meta" x="18" y="14">${escapeHtml(commit)} · ${escapeHtml(created)}${badges ? ` · ${escapeHtml(badges)}` : ""}</text>
         </g>
       `;
     })
@@ -670,7 +672,7 @@ function renderDetail() {
     return;
   }
 
-  const { summary, checkpoints, checkpoint_graph, attempts, artifacts } = state.detail;
+  const { summary, checkpoints, checkpoint_graph, artifacts } = state.detail;
   const checkpointView = normalizeCheckpointGraph(checkpoint_graph, checkpoints);
   const previewableCount = previewablePaths(state.detail).length;
   const statusTone = summary.solve_status === "solved" ? "ok" : "warn";
@@ -683,12 +685,12 @@ function renderDetail() {
             <div class="checkpoint-item">
               <div>
                 <div class="entry-title">${escapeHtml(checkpoint.name)}</div>
-                <div class="entry-copy mono">${escapeHtml(checkpoint.id)}</div>
+                <div class="entry-copy mono">${escapeHtml(checkpoint.short_id || checkpoint.id.slice(0, 12))}</div>
                 <div class="entry-copy">${escapeHtml(checkpoint.created_at)}</div>
               </div>
               <div class="split-actions">
                 ${checkpoint.is_latest ? `<span class="chip ok">latest</span>` : ""}
-                <button class="button ghost checkpoint-restore" data-checkpoint="${escapeHtml(checkpoint.id)}" type="button">Restore</button>
+                <button class="button ghost checkpoint-restore" data-checkpoint="${escapeHtml(checkpoint.id)}" type="button">Restore Files</button>
               </div>
             </div>
           `
@@ -716,7 +718,6 @@ function renderDetail() {
       <div class="stats-grid">
         <div class="stat"><span class="meta">Checkpoints</span><strong>${summary.checkpoint_count}</strong></div>
         <div class="stat"><span class="meta">Type</span><strong>${escapeHtml(challengeType)}</strong></div>
-        <div class="stat"><span class="meta">Attempts</span><strong>${summary.attempt_count}</strong></div>
         <div class="stat"><span class="meta">Artifacts</span><strong>${summary.artifact_count}</strong></div>
         <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>
       </div>
@@ -753,11 +754,10 @@ function renderDetail() {
           <span class="chip">${summary.artifact_count} root entries</span>
         </div>
         <div class="stats-grid">
-          <div class="stat"><span class="meta">Attempts Dir</span><strong>${summary.attempt_count}</strong></div>
           <div class="stat"><span class="meta">Root Entries</span><strong>${summary.artifact_count}</strong></div>
           <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>
         </div>
-        <p class="muted">Use the file browser above to inspect nested directories such as <span class="mono">attempts/</span> and <span class="mono">checkpoints/</span>.</p>
+        <p class="muted">Use the file browser above to inspect nested directories; checkpoints are stored as git commits in the challenge directory.</p>
       </section>
     </div>
   `;
@@ -1003,7 +1003,7 @@ async function restoreCheckpoint(checkpoint) {
   if (!state.selected || !checkpoint) {
     return;
   }
-  const confirmed = window.confirm(`Restore checkpoint ${checkpoint}? This will overwrite tracked files in the challenge directory.`);
+  const confirmed = window.confirm(`Restore tracked files from git checkpoint ${checkpoint.slice(0, 12)}?`);
   if (!confirmed) {
     return;
   }
