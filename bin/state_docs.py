@@ -81,6 +81,7 @@ def state_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
         "Current Stage",
         "Target Profile",
         "Current Primitive",
+        "Debug",
         "Next Step",
         "Checkpoint Plan",
         "Rejected Branches",
@@ -109,6 +110,7 @@ def state_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
         "current_stage": stage_items[0] if stage_items else "not started",
         "target_profile": profile,
         "current_primitive": (sections.get("Current Primitive") or ["none yet"])[0],
+        "debug": debug_from_items(sections.get("Debug") or []),
         "next_steps": sections.get("Next Step") or ["none yet"],
         "checkpoint_plan": plan,
         "rejected_branches": sections.get("Rejected Branches") or ["none yet"],
@@ -130,6 +132,20 @@ def facts_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
     return {"version": 1, "challenge": challenge, "intro": intro, "sections": data_sections}
 
 
+def debug_from_items(items: list[str]) -> dict[str, Any]:
+    debug = {"pwndbg_mcp": "127.0.0.1:8780", "session_scope": "single challenge", "notes": []}
+    notes: list[str] = []
+    for item in items:
+        key, _, value = item.partition(":")
+        normalized = key.strip().replace(" ", "_").replace("-", "_").lower()
+        if normalized in {"pwndbg_mcp", "session_scope"}:
+            debug[normalized] = value.strip()
+        elif item.strip() and item.strip() != "none yet":
+            notes.append(item.strip())
+    debug["notes"] = notes
+    return debug
+
+
 def init_docs(challenge_dir: Path) -> None:
     challenge_dir.mkdir(parents=True, exist_ok=True)
     for template, output in (
@@ -149,6 +165,9 @@ def init_docs(challenge_dir: Path) -> None:
             changed = True
         if output.name == "state.json" and "extra_sections" not in data:
             data["extra_sections"] = []
+            changed = True
+        if output.name == "state.json" and "debug" not in data:
+            data["debug"] = {"pwndbg_mcp": "127.0.0.1:8780", "session_scope": "single challenge", "notes": []}
             changed = True
         if changed or not output.exists():
             write_json(output, data)
@@ -187,6 +206,16 @@ def validate_state(data: dict[str, Any]) -> list[str]:
         errors.append("state.json: target_profile must be an object")
     if not isinstance(data.get("checkpoint_plan"), dict):
         errors.append("state.json: checkpoint_plan must be an object")
+    if "debug" in data:
+        debug = data.get("debug")
+        if not isinstance(debug, dict):
+            errors.append("state.json: debug must be an object")
+        else:
+            for field in ("pwndbg_mcp", "session_scope"):
+                if field in debug and not isinstance(debug.get(field), str):
+                    errors.append(f"state.json: debug.{field} must be a string")
+            if "notes" in debug and not isinstance(debug.get("notes"), list):
+                errors.append("state.json: debug.notes must be a list")
     for field in ("next_steps", "rejected_branches", "avoid", "open_questions"):
         if not isinstance(data.get(field), list):
             errors.append(f"state.json: {field} must be a list")
@@ -235,6 +264,7 @@ def render_facts(data: dict[str, Any]) -> str:
 def render_state(data: dict[str, Any]) -> str:
     profile = data.get("target_profile") if isinstance(data.get("target_profile"), dict) else {}
     plan = data.get("checkpoint_plan") if isinstance(data.get("checkpoint_plan"), dict) else {}
+    debug = data.get("debug") if isinstance(data.get("debug"), dict) else {}
     def field_line(label: str, value: Any) -> str:
         text = str(value or "").strip()
         return f"- {label}: {text}" if text else f"- {label}:"
@@ -254,7 +284,17 @@ def render_state(data: dict[str, Any]) -> str:
         "",
         f"- {data.get('current_primitive') or 'none yet'}",
         "",
+        "# Debug",
+        "",
+        field_line("pwndbg_mcp", debug.get("pwndbg_mcp", "127.0.0.1:8780")),
+        field_line("session_scope", debug.get("session_scope", "single challenge")),
+        "",
     ]
+    debug_notes = debug.get("notes") if isinstance(debug.get("notes"), list) else []
+    if debug_notes:
+        lines.extend(["# Debug Notes", ""])
+        lines.extend(f"- {item}" for item in debug_notes if str(item).strip())
+        lines.append("")
     list_sections = (
         ("Next Step", data.get("next_steps")),
         ("Checkpoint Plan", [

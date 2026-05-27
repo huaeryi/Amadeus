@@ -8,6 +8,11 @@
     "likely_bug_class": ""
   },
   "current_primitive": "none yet",
+  "debug": {
+    "pwndbg_mcp": "127.0.0.1:8780",
+    "session_scope": "single challenge",
+    "notes": []
+  },
   "next_steps": [
     "inspect binary protections and runtime setup",
     "confirm crash path or first primitive"

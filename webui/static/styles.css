@@ -104,6 +104,21 @@ textarea {
   animation: rise 420ms ease-out both;
 }
 
+.brand-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-logo {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  box-shadow: 0 12px 28px rgba(19, 33, 47, 0.16);
+}
+
 .brand h1,
 .hero h2,
 .panel h2,
@@ -257,9 +272,59 @@ textarea {
   gap: 8px;
 }
 
-.challenge-group-heading {
+.challenge-event {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.challenge-event-heading {
   position: sticky;
   top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid rgba(19, 33, 47, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.challenge-event-heading:hover {
+  border-color: rgba(14, 143, 125, 0.28);
+}
+
+.challenge-event-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.challenge-event-chevron {
+  width: 1ch;
+  color: var(--accent-strong);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.challenge-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.challenge-group-heading {
+  position: sticky;
+  top: 42px;
   z-index: 1;
   display: flex;
   align-items: center;
@@ -323,9 +388,11 @@ textarea {
 
 .checkpoint-graph {
   border: 1px solid rgba(19, 33, 47, 0.08);
-  border-radius: 16px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.42);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42)),
+    repeating-linear-gradient(90deg, rgba(19, 33, 47, 0.04) 0 1px, transparent 1px 34px);
   overflow-x: auto;
 }
 
@@ -342,14 +409,14 @@ textarea {
 
 .checkpoint-svg-edge {
   fill: none;
-  stroke: rgba(19, 33, 47, 0.22);
+  stroke: rgba(6, 105, 91, 0.28);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .checkpoint-svg-dot {
-  fill: rgba(19, 33, 47, 0.32);
+  fill: rgba(19, 33, 47, 0.38);
   stroke: rgba(255, 255, 255, 0.92);
   stroke-width: 3;
 }
@@ -361,6 +428,49 @@ textarea {
 .checkpoint-svg-node.latest .checkpoint-svg-dot {
   stroke: #db783c;
   stroke-width: 4;
+}
+
+.checkpoint-control {
+  gap: 16px;
+}
+
+.checkpoint-summary,
+.checkpoint-actions,
+.checkpoint-meta,
+.checkpoint-list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkpoint-summary {
+  justify-content: flex-end;
+}
+
+.checkpoint-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(19, 33, 47, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.checkpoint-field {
+  min-width: 0;
+}
+
+.checkpoint-create .button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.checkpoint-list-header {
+  justify-content: space-between;
+  padding: 0 2px;
 }
 
 .checkpoint-svg-title {
@@ -487,6 +597,38 @@ textarea {
 .browser-item {
   padding: 12px 0;
   border-bottom: 1px solid rgba(19, 33, 47, 0.08);
+}
+
+.checkpoint-item {
+  position: relative;
+  align-items: flex-start;
+  padding: 12px 0 12px 22px;
+}
+
+.checkpoint-item::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 18px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(14, 143, 125, 0.12);
+}
+
+.checkpoint-item::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 31px;
+  bottom: -8px;
+  width: 1px;
+  background: rgba(14, 143, 125, 0.2);
+}
+
+.checkpoint-item:last-child::after {
+  display: none;
 }
 
 .artifact-item.active,
@@ -688,5 +830,19 @@ textarea {
   .artifact-item {
     align-items: start;
     flex-direction: column;
+  }
+
+  .checkpoint-create {
+    grid-template-columns: 1fr;
+  }
+
+  .checkpoint-create .button {
+    width: 100%;
+  }
+
+  .checkpoint-summary,
+  .checkpoint-actions,
+  .checkpoint-list-header {
+    justify-content: flex-start;
   }
 }

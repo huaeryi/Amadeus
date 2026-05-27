@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import os
 import re
 import subprocess
@@ -17,6 +18,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR / "webui" / "static"
+IMGS_DIR = ROOT_DIR / "webui" / "imgs"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
 CORE_DOCUMENTS = ("state.json", "STATE.md", "facts.json", "FACTS.md", "capabilities.json", "CAPABILITIES.md", "metadata.json", ".ctf-files", ".pwnrun")
@@ -481,9 +483,11 @@ def challenge_summary(path: Path) -> dict[str, Any]:
 
     challenge_name = str(path.relative_to(CHALLENGES_DIR))
     group = str(path.parent.relative_to(CHALLENGES_DIR)) if path.parent != CHALLENGES_DIR else ""
+    event = challenge_name.split("/", 1)[0]
     return {
         "name": challenge_name,
         "group": "" if group == "." else group,
+        "event": event,
         "title": metadata.get("title") or path.name,
         "path": str(path.relative_to(ROOT_DIR)),
         "metadata": metadata,
@@ -526,13 +530,22 @@ def list_challenges() -> list[dict[str, Any]]:
     def is_challenge_dir(path: Path) -> bool:
         return path.is_dir() and not path.name.startswith(".") and any((path / name).exists() for name in CORE_DOCUMENTS)
 
+    def is_supported_challenge_path(path: Path) -> bool:
+        parts = path.relative_to(CHALLENGES_DIR).parts
+        if any(part.startswith(".") for part in parts):
+            return False
+        if len(parts) == 2:
+            return True
+        if len(parts) == 3:
+            return parts[1].lower() in {"reverse", "pwn", "web", "misc", "crypto"}
+        return False
+
     challenges: list[dict[str, Any]] = []
-    for group_dir in sorted(CHALLENGES_DIR.iterdir(), key=lambda item: item.name.lower()):
-        if not group_dir.is_dir() or group_dir.name.startswith("."):
+    for entry in sorted(CHALLENGES_DIR.rglob("*"), key=lambda item: str(item.relative_to(CHALLENGES_DIR)).lower()):
+        if not entry.is_dir() or not is_supported_challenge_path(entry):
             continue
-        for entry in sorted(group_dir.iterdir(), key=lambda item: item.name.lower()):
-            if is_challenge_dir(entry):
-                challenges.append(challenge_summary(entry))
+        if is_challenge_dir(entry):
+            challenges.append(challenge_summary(entry))
     return challenges
 
 
@@ -548,6 +561,31 @@ class AmadeusHandler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_asset(self, root: Path, relative_path: str) -> None:
+        requested_path = Path(unquote(relative_path))
+        if requested_path.is_absolute() or any(part in {"", ".", ".."} for part in requested_path.parts):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid asset path")
+            return
+
+        path = (root / requested_path).resolve()
+        try:
+            path.relative_to(root.resolve())
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid asset path")
+            return
+        if not path.exists() or not path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND, "Asset not found")
+            return
+
+        data = path.read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
         self.wfile.write(data)
 
@@ -729,6 +767,12 @@ class AmadeusHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
             self.handle_api("GET")
+            return
+        if parsed.path == "/favicon.ico":
+            self.send_asset(IMGS_DIR, "amds-favicon.png")
+            return
+        if parsed.path.startswith("/imgs/"):
+            self.send_asset(IMGS_DIR, parsed.path.removeprefix("/imgs/"))
             return
         if parsed.path == "/":
             self.path = "/index.html"

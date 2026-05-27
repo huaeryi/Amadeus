@@ -30,12 +30,16 @@ libc 策略：
 调试工具策略：
 - 优先使用 `pwndbg-mcp` 辅助读取寄存器、栈、堆、bins、tcache、vmmap、断点和崩溃现场
 - 使用 `pwndbg-mcp` 得到的运行时结论必须写入 `facts.json`，推测和下一步仍写入 `state.json`
+- 默认把 `pwndbg-mcp` 视为绑定 `127.0.0.1:8780` 的当前题目调试会话；如果端口不可用，先检查是否已有旧会话占用，再决定复用当前题会话或切到 `8781`、`8782` 等新端口
+- 不要让多个题目共用同一个 gdb/pwndbg inferior；工具安装可以共用，但每个题目应有独立 gdb 会话和独立 MCP 端口或明确的当前会话绑定
+- 使用或切换 `pwndbg-mcp` 前，在 `state.json.debug.pwndbg_mcp` 记录当前端点，例如 `127.0.0.1:8780`，并在 `state.json.debug.session_scope` 写明 `single challenge`
+- 从 `pwndbg-mcp` 读取证据前，先确认当前 gdb 加载的 binary 路径属于 `{{challenge_path}}`；如果不属于，停止读取并重新启动该题目的 gdb/pwndbg 会话
 
 先读：
 - `{{root_name}}/prompts/learn/pwn_learning.md`
 
 完成标准：
-- 基于 `exp_template.py` 编写 `exp.py`；没有模板时直接创建可复现的 `exp.py`
+- 基于 `exp_template.py` 编写 `exp.py`；没有模板时直接创建可复现的 `exp.py`，用`pwntools`
 - 需要时用 pwndbg、gdb、pwndbg-mcp 验证 offset、保护、leak、堆布局、寄存器状态和利用链
 - 必须实际运行 exploit 拿到 flag，并把 flag 结果作为完成标准
 - 最终产出 `exp.py` 和 `wp.md`

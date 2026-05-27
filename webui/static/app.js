@@ -10,6 +10,7 @@ const state = {
   browserPath: ".",
   browserEntries: [],
   browserLoading: false,
+  collapsedEvents: new Set(),
 };
 
 const elements = {
@@ -393,6 +394,22 @@ function groupChallenges(challenges) {
   return [...groups.entries()];
 }
 
+function eventName(challenge) {
+  return challenge.event || challenge.name.split("/")[0] || "Ungrouped";
+}
+
+function groupChallengesByEvent(challenges) {
+  const events = new Map();
+  for (const challenge of challenges) {
+    const event = eventName(challenge);
+    if (!events.has(event)) {
+      events.set(event, []);
+    }
+    events.get(event).push(challenge);
+  }
+  return [...events.entries()];
+}
+
 function renderChallengeList() {
   const items = filteredChallenges();
   if (!items.length) {
@@ -407,43 +424,72 @@ function renderChallengeList() {
     return;
   }
 
-  elements.challengeList.innerHTML = groupChallenges(items)
-    .map(([group, challenges]) => {
-      const cards = challenges
-        .map((challenge) => {
-          const statusTone = challenge.solve_status === "solved" ? "ok" : "warn";
-          const challengeType = challenge.challenge_type || "unknown";
-          const badges = [
-            `<span class="chip type">${escapeHtml(challengeType)}</span>`,
-            `<span class="chip ${statusTone}">${escapeHtml(challenge.solve_status)}</span>`,
-            challenge.initialized ? `<span class="chip ok">initialized</span>` : `<span class="chip warn">not init</span>`,
-            `<span class="chip">${challenge.checkpoint_count} cp</span>`,
-          ].join("");
+  elements.challengeList.innerHTML = groupChallengesByEvent(items)
+    .map(([event, eventChallenges]) => {
+      const collapsed = state.collapsedEvents.has(event);
+      const groups = groupChallenges(eventChallenges)
+        .map(([group, challenges]) => {
+          const cards = challenges
+            .map((challenge) => {
+              const statusTone = challenge.solve_status === "solved" ? "ok" : "warn";
+              const challengeType = challenge.challenge_type || "unknown";
+              const badges = [
+                `<span class="chip type">${escapeHtml(challengeType)}</span>`,
+                `<span class="chip ${statusTone}">${escapeHtml(challenge.solve_status)}</span>`,
+                challenge.initialized ? `<span class="chip ok">initialized</span>` : `<span class="chip warn">not init</span>`,
+                `<span class="chip">${challenge.checkpoint_count} cp</span>`,
+              ].join("");
+
+              return `
+                <button class="challenge-card ${challenge.name === state.selected ? "active" : ""}" data-name="${escapeHtml(challenge.name)}" type="button">
+                  <div class="challenge-card-title">
+                    <strong>${escapeHtml(challengeDisplayName(challenge))}</strong>
+                    <span class="meta">${escapeHtml(challenge.updated_at.slice(5, 16).replace("T", " "))}</span>
+                  </div>
+                  <div class="challenge-card-badges">${badges}</div>
+                  <p class="meta mono">${escapeHtml(challenge.name)}</p>
+                </button>
+              `;
+            })
+            .join("");
 
           return `
-            <button class="challenge-card ${challenge.name === state.selected ? "active" : ""}" data-name="${escapeHtml(challenge.name)}" type="button">
-              <div class="challenge-card-title">
-                <strong>${escapeHtml(challengeDisplayName(challenge))}</strong>
-                <span class="meta">${escapeHtml(challenge.updated_at.slice(5, 16).replace("T", " "))}</span>
+            <section class="challenge-group">
+              <div class="challenge-group-heading">
+                <span>${escapeHtml(group)}</span>
+                <span class="chip">${challenges.length}</span>
               </div>
-              <div class="challenge-card-badges">${badges}</div>
-              <p class="meta mono">${escapeHtml(challenge.name)}</p>
-            </button>
+              <div class="challenge-group-list">${cards}</div>
+            </section>
           `;
         })
         .join("");
-
       return `
-        <section class="challenge-group">
-          <div class="challenge-group-heading">
-            <span>${escapeHtml(group)}</span>
-            <span class="chip">${challenges.length}</span>
-          </div>
-          <div class="challenge-group-list">${cards}</div>
+        <section class="challenge-event ${collapsed ? "collapsed" : ""}">
+          <button class="challenge-event-heading" data-event="${escapeHtml(event)}" type="button" aria-expanded="${String(!collapsed)}">
+            <span class="challenge-event-title">
+              <span class="challenge-event-chevron">${collapsed ? ">" : "v"}</span>
+              <span>${escapeHtml(event)}</span>
+            </span>
+            <span class="chip">${eventChallenges.length}</span>
+          </button>
+          <div class="challenge-event-list">${collapsed ? "" : groups}</div>
         </section>
       `;
     })
     .join("");
+
+  elements.challengeList.querySelectorAll("[data-event]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const event = button.dataset.event;
+      if (state.collapsedEvents.has(event)) {
+        state.collapsedEvents.delete(event);
+      } else {
+        state.collapsedEvents.add(event);
+      }
+      renderChallengeList();
+    });
+  });
 
   elements.challengeList.querySelectorAll("[data-name]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -685,10 +731,12 @@ function renderDetail() {
             <div class="checkpoint-item">
               <div>
                 <div class="entry-title">${escapeHtml(checkpoint.name)}</div>
-                <div class="entry-copy mono">${escapeHtml(checkpoint.short_id || checkpoint.id.slice(0, 12))}</div>
-                <div class="entry-copy">${escapeHtml(checkpoint.created_at)}</div>
+                <div class="checkpoint-meta">
+                  <span class="entry-copy mono">${escapeHtml(checkpoint.short_id || checkpoint.id.slice(0, 12))}</span>
+                  <span class="entry-copy">${escapeHtml(checkpoint.created_at)}</span>
+                </div>
               </div>
-              <div class="split-actions">
+              <div class="checkpoint-actions">
                 ${checkpoint.is_latest ? `<span class="chip ok">latest</span>` : ""}
                 <button class="button ghost checkpoint-restore" data-checkpoint="${escapeHtml(checkpoint.id)}" type="button">Restore Files</button>
               </div>
@@ -732,19 +780,29 @@ function renderDetail() {
       <div class="stack">
         ${renderRunInfoCard()}
 
-        <section class="detail-card stack">
+        <section class="detail-card checkpoint-control stack">
           <div class="detail-header">
-            <h3>Checkpoint Control</h3>
-            <span class="chip">${checkpointView.nodes.length} saved</span>
+            <div>
+              <p class="eyebrow">Git Timeline</p>
+              <h3>Checkpoint Control</h3>
+            </div>
+            <div class="checkpoint-summary">
+              <span class="chip">${checkpointView.nodes.length} saved</span>
+              <span class="chip ok">${summary.checkpoint_count} commits</span>
+            </div>
           </div>
           ${renderCheckpointGraph(checkpoint_graph, checkpoints)}
-          <form id="checkpoint-form" class="stack">
-            <label class="field">
+          <form id="checkpoint-form" class="checkpoint-create">
+            <label class="field checkpoint-field">
               <span>Checkpoint name</span>
               <input id="checkpoint-name" type="text" placeholder="primitive-confirmed" autocomplete="off" />
             </label>
             <button class="button primary" type="submit">Create Checkpoint</button>
           </form>
+          <div class="checkpoint-list-header">
+            <span class="meta">Saved commits</span>
+            <span class="meta">Restore affects tracked files only</span>
+          </div>
           <div class="checkpoints">${checkpointMarkup}</div>
         </section>
       </div>
@@ -788,6 +846,12 @@ function renderDetail() {
 async function loadChallenges({ preserveSelection = true } = {}) {
   const payload = await request("/api/challenges");
   state.challenges = payload.challenges;
+  const visibleEvents = new Set(state.challenges.map(eventName));
+  for (const event of visibleEvents) {
+    if (event && !state.collapsedEvents.has(event)) {
+      state.collapsedEvents.add(event);
+    }
+  }
 
   if (preserveSelection && state.selected && state.challenges.some((item) => item.name === state.selected)) {
     renderChallengeList();

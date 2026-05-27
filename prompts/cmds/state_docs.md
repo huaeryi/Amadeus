@@ -8,4 +8,5 @@ facts/state 机制：
 写入规则：
 - 已确认事实写入 `facts.json`
 - 推测、候选路线、失败路线、下一步和开放问题写入 `state.json`
+- 当前调试会话信息写入 `state.json.debug`；pwn 题默认 `pwndbg_mcp` 是 `127.0.0.1:8780`，多题并行时必须换端口并记录清楚
 - `FACTS.md` / `STATE.md` 只用于阅读和汇报，不作为编辑入口
