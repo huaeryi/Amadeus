@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "challenge": "",
+  "metadata": {
+    "schema_version": 1,
+    "title": "",
+    "source": "",
+    "platform": "",
+    "problem_id": "",
+    "challenge_type": "",
+    "tags": [],
+    "points": null,
+    "level": "",
+    "docker": null,
+    "annex": null,
+    "downloaded_at": "",
+    "description": "",
+    "evidence_dir": "evidence",
+    "local_files": [],
+      "tracked_files": [
+        "evidence/",
+        "exp.py",
+        "exp_example.py",
+        "exp_template.py",
+        "wp.md",
+      "cognition.json",
+      "COGNITION.md",
+      ".pwnrun"
+    ]
+  },
+  "facts": {
+    "version": 1,
+    "challenge": "",
+    "intro": "Only record facts verified from the binary, runtime, debugger, or exploit output.",
+    "sections": [
+      {
+        "title": "Environment",
+        "items": [
+          "binary:",
+          "libc:",
+          "ld:",
+          "remote:"
+        ]
+      },
+      {
+        "title": "Protections",
+        "items": ["none yet"]
+      },
+      {
+        "title": "Bug / Primitive",
+        "items": ["none yet"]
+      },
+      {
+        "title": "Leaks / Offsets",
+        "items": ["none yet"]
+      },
+      {
+        "title": "Gadgets / Symbols",
+        "items": ["none yet"]
+      },
+      {
+        "title": "Constraints",
+        "items": ["none yet"]
+      }
+    ]
+  },
+  "state": {
+    "version": 1,
+    "challenge": "",
+    "current_stage": "not started",
+    "target_profile": {
+      "challenge_type": "",
+      "protections": "",
+      "likely_bug_class": ""
+    },
+    "current_primitive": "none yet",
+    "debug": {
+      "pwndbg_mcp": "127.0.0.1:8780",
+      "session_scope": "single challenge",
+      "notes": []
+    },
+    "next_steps": [
+      "inspect binary protections and runtime setup",
+      "confirm crash path or first primitive"
+    ],
+    "checkpoint_plan": {
+      "last_stable_checkpoint": "none yet",
+      "next_likely_checkpoint": "env-ok",
+      "after_that": "primitive-confirmed"
+    },
+    "rejected_branches": ["none yet"],
+    "avoid": ["none yet"],
+    "open_questions": ["none yet"],
+    "your_turn": [],
+    "extra_sections": []
+  },
+  "capabilities": {
+    "version": 1,
+    "challenge": "",
+    "active_env": "local",
+    "capabilities": []
+  }
+}

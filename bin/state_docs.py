@@ -10,8 +10,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FACTS_TEMPLATE = ROOT / "templates" / "facts.json"
-STATE_TEMPLATE = ROOT / "templates" / "state.json"
+COGNITION_TEMPLATE = ROOT / "templates" / "cognition.json"
 
 
 class StateDocError(RuntimeError):
@@ -32,6 +31,44 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def cognition_path(challenge_dir: Path) -> Path:
+    return challenge_dir / "cognition.json"
+
+
+def sync_challenge_names(data: dict[str, Any], challenge: str) -> bool:
+    changed = False
+    if not data.get("challenge"):
+        data["challenge"] = challenge
+        changed = True
+    for key in ("metadata", "facts", "state", "capabilities"):
+        section = data.get(key)
+        if isinstance(section, dict) and not section.get("challenge"):
+            section["challenge"] = challenge
+            changed = True
+    return changed
+
+
+def load_cognition(challenge_dir: Path) -> dict[str, Any]:
+    path = cognition_path(challenge_dir)
+    template = load_json(COGNITION_TEMPLATE)
+    if path.exists():
+        data = load_json(path)
+    else:
+        data = template
+    for key in ("facts", "state", "capabilities"):
+        if key not in data:
+            data[key] = template[key]
+    if not isinstance(data.get("facts"), dict):
+        raise StateDocError("cognition.json: facts must be an object")
+    if not isinstance(data.get("metadata"), dict):
+        raise StateDocError("cognition.json: metadata must be an object")
+    if not isinstance(data.get("state"), dict):
+        raise StateDocError("cognition.json: state must be an object")
+    if not isinstance(data.get("capabilities"), dict):
+        raise StateDocError("cognition.json: capabilities must be an object")
+    return data
 
 
 def markdown_sections(text: str) -> tuple[str, dict[str, list[str]]]:
@@ -75,8 +112,8 @@ def state_markdown_sections(text: str) -> dict[str, list[str]]:
     return sections
 
 
-def state_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
-    sections = state_markdown_sections(path.read_text(encoding="utf-8"))
+def state_from_markdown_text(text: str, challenge: str) -> dict[str, Any]:
+    sections = state_markdown_sections(text)
     known_sections = {
         "Current Stage",
         "Target Profile",
@@ -125,11 +162,19 @@ def state_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
     }
 
 
-def facts_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
-    title, sections = markdown_sections(path.read_text(encoding="utf-8"))
+def state_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
+    return state_from_markdown_text(path.read_text(encoding="utf-8"), challenge)
+
+
+def facts_from_markdown_text(text: str, challenge: str) -> dict[str, Any]:
+    title, sections = markdown_sections(text)
     intro = "Only record facts verified from the binary, runtime, debugger, or exploit output."
     data_sections = [{"title": key, "items": value or ["none yet"]} for key, value in sections.items()]
     return {"version": 1, "challenge": challenge, "intro": intro, "sections": data_sections}
+
+
+def facts_from_markdown(path: Path, challenge: str) -> dict[str, Any]:
+    return facts_from_markdown_text(path.read_text(encoding="utf-8"), challenge)
 
 
 def debug_from_items(items: list[str]) -> dict[str, Any]:
@@ -146,99 +191,151 @@ def debug_from_items(items: list[str]) -> dict[str, Any]:
     return debug
 
 
+def normalize_cognition(data: dict[str, Any], challenge_dir: Path) -> bool:
+    template = load_json(COGNITION_TEMPLATE)
+    changed = False
+    if data.get("version") != 1:
+        data["version"] = 1
+        changed = True
+    for key in ("metadata", "facts", "state", "capabilities"):
+        if not isinstance(data.get(key), dict):
+            data[key] = template[key]
+            changed = True
+    changed = sync_challenge_names(data, challenge_dir.name) or changed
+    metadata = data["metadata"]
+    if metadata.get("schema_version") != 1:
+        metadata["schema_version"] = 1
+        changed = True
+    if not metadata.get("title"):
+        metadata["title"] = challenge_dir.name
+        changed = True
+
+    state = data["state"]
+    for field, default in (
+        ("your_turn", []),
+        ("extra_sections", []),
+        ("debug", {"pwndbg_mcp": "127.0.0.1:8780", "session_scope": "single challenge", "notes": []}),
+    ):
+        if field not in state:
+            state[field] = default
+            changed = True
+
+    capabilities = data["capabilities"]
+    if capabilities.get("active_env") is None:
+        capabilities["active_env"] = "local"
+        changed = True
+    if not isinstance(capabilities.get("capabilities"), list):
+        capabilities["capabilities"] = []
+        changed = True
+    return changed
+
+
 def init_docs(challenge_dir: Path) -> None:
     challenge_dir.mkdir(parents=True, exist_ok=True)
-    for template, output in (
-        (FACTS_TEMPLATE, challenge_dir / "facts.json"),
-        (STATE_TEMPLATE, challenge_dir / "state.json"),
-    ):
-        if not output.exists():
-            data = load_json(template)
-        else:
-            data = load_json(output)
-        changed = False
-        if not data.get("challenge"):
-            data["challenge"] = challenge_dir.name
-            changed = True
-        if output.name == "state.json" and "your_turn" not in data:
-            data["your_turn"] = []
-            changed = True
-        if output.name == "state.json" and "extra_sections" not in data:
-            data["extra_sections"] = []
-            changed = True
-        if output.name == "state.json" and "debug" not in data:
-            data["debug"] = {"pwndbg_mcp": "127.0.0.1:8780", "session_scope": "single challenge", "notes": []}
-            changed = True
-        if changed or not output.exists():
-            write_json(output, data)
+    data = load_cognition(challenge_dir)
+    changed = normalize_cognition(data, challenge_dir)
+    if changed or not cognition_path(challenge_dir).exists():
+        write_json(cognition_path(challenge_dir), data)
     render_docs(challenge_dir)
 
 
 def validate_facts(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if data.get("version") != 1:
-        errors.append("facts.json: version must be 1")
+        errors.append("cognition.json.facts: version must be 1")
     if not isinstance(data.get("challenge"), str):
-        errors.append("facts.json: challenge must be a string")
+        errors.append("cognition.json.facts: challenge must be a string")
     sections = data.get("sections")
     if not isinstance(sections, list):
-        errors.append("facts.json: sections must be a list")
+        errors.append("cognition.json.facts: sections must be a list")
         return errors
     for index, section in enumerate(sections):
         if not isinstance(section, dict):
-            errors.append(f"facts.json: sections[{index}] must be an object")
+            errors.append(f"cognition.json.facts: sections[{index}] must be an object")
             continue
         if not isinstance(section.get("title"), str) or not section.get("title").strip():
-            errors.append(f"facts.json: sections[{index}].title must be a non-empty string")
+            errors.append(f"cognition.json.facts: sections[{index}].title must be a non-empty string")
         if not isinstance(section.get("items"), list):
-            errors.append(f"facts.json: sections[{index}].items must be a list")
+            errors.append(f"cognition.json.facts: sections[{index}].items must be a list")
     return errors
 
 
 def validate_state(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if data.get("version") != 1:
-        errors.append("state.json: version must be 1")
+        errors.append("cognition.json.state: version must be 1")
     for field in ("challenge", "current_stage", "current_primitive"):
         if not isinstance(data.get(field), str):
-            errors.append(f"state.json: {field} must be a string")
+            errors.append(f"cognition.json.state: {field} must be a string")
     if not isinstance(data.get("target_profile"), dict):
-        errors.append("state.json: target_profile must be an object")
+        errors.append("cognition.json.state: target_profile must be an object")
     if not isinstance(data.get("checkpoint_plan"), dict):
-        errors.append("state.json: checkpoint_plan must be an object")
+        errors.append("cognition.json.state: checkpoint_plan must be an object")
     if "debug" in data:
         debug = data.get("debug")
         if not isinstance(debug, dict):
-            errors.append("state.json: debug must be an object")
+            errors.append("cognition.json.state: debug must be an object")
         else:
             for field in ("pwndbg_mcp", "session_scope"):
                 if field in debug and not isinstance(debug.get(field), str):
-                    errors.append(f"state.json: debug.{field} must be a string")
+                    errors.append(f"cognition.json.state: debug.{field} must be a string")
             if "notes" in debug and not isinstance(debug.get("notes"), list):
-                errors.append("state.json: debug.notes must be a list")
+                errors.append("cognition.json.state: debug.notes must be a list")
     for field in ("next_steps", "rejected_branches", "avoid", "open_questions"):
         if not isinstance(data.get(field), list):
-            errors.append(f"state.json: {field} must be a list")
+            errors.append(f"cognition.json.state: {field} must be a list")
     if "your_turn" in data and not isinstance(data.get("your_turn"), list):
-        errors.append("state.json: your_turn must be a list")
+        errors.append("cognition.json.state: your_turn must be a list")
     if "extra_sections" in data:
         extra_sections = data.get("extra_sections")
         if not isinstance(extra_sections, list):
-            errors.append("state.json: extra_sections must be a list")
+            errors.append("cognition.json.state: extra_sections must be a list")
         else:
             for index, section in enumerate(extra_sections):
                 if not isinstance(section, dict):
-                    errors.append(f"state.json: extra_sections[{index}] must be an object")
+                    errors.append(f"cognition.json.state: extra_sections[{index}] must be an object")
                     continue
                 if not isinstance(section.get("title"), str) or not section.get("title").strip():
-                    errors.append(f"state.json: extra_sections[{index}].title must be a non-empty string")
+                    errors.append(f"cognition.json.state: extra_sections[{index}].title must be a non-empty string")
                 if not isinstance(section.get("items"), list):
-                    errors.append(f"state.json: extra_sections[{index}].items must be a list")
+                    errors.append(f"cognition.json.state: extra_sections[{index}].items must be a list")
+    return errors
+
+
+def validate_capabilities(data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if data.get("version") != 1:
+        errors.append("cognition.json.capabilities: version must be 1")
+    if not isinstance(data.get("challenge"), str):
+        errors.append("cognition.json.capabilities: challenge must be a string")
+    if not isinstance(data.get("active_env"), str):
+        errors.append("cognition.json.capabilities: active_env must be a string")
+    if not isinstance(data.get("capabilities"), list):
+        errors.append("cognition.json.capabilities: capabilities must be a list")
+    return errors
+
+
+def validate_metadata(data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if data.get("schema_version") != 1:
+        errors.append("cognition.json.metadata: schema_version must be 1")
+    for field in ("title", "source", "platform", "problem_id", "challenge_type", "level", "downloaded_at", "description", "evidence_dir"):
+        if field in data and data[field] is not None and not isinstance(data[field], str):
+            errors.append(f"cognition.json.metadata: {field} must be a string")
+    for field in ("tags", "local_files", "tracked_files"):
+        if field in data and not isinstance(data[field], list):
+            errors.append(f"cognition.json.metadata: {field} must be a list")
     return errors
 
 
 def validate_docs(challenge_dir: Path) -> list[str]:
-    return validate_facts(load_json(challenge_dir / "facts.json")) + validate_state(load_json(challenge_dir / "state.json"))
+    data = load_cognition(challenge_dir)
+    return (
+        validate_metadata(data["metadata"])
+        + validate_facts(data["facts"])
+        + validate_state(data["state"])
+        + validate_capabilities(data["capabilities"])
+    )
 
 
 def render_facts(data: dict[str, Any]) -> str:
@@ -326,53 +423,182 @@ def render_state(data: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+STATUS_ORDER = ("verified", "observed", "hypothesis", "target", "blocked")
+STATUS_TITLE = {
+    "verified": "Verified",
+    "observed": "Observed",
+    "hypothesis": "Hypothesis",
+    "target": "Target",
+    "blocked": "Blocked",
+}
+
+
+def evidence_target(item: dict[str, Any]) -> str:
+    artifact = str(item.get("artifact") or "").strip()
+    command = str(item.get("command") or "").strip()
+    if artifact and command:
+        return f"{artifact} (`{command}`)"
+    if artifact:
+        return artifact
+    if command:
+        return f"`{command}`"
+    return str(item.get("summary") or "").strip()
+
+
+def render_capabilities(data: dict[str, Any]) -> str:
+    lines: list[str] = [
+        "# Capabilities",
+        "",
+        f"- active_env: {data.get('active_env', '')}",
+        "",
+    ]
+    capabilities = [cap for cap in data.get("capabilities", []) if isinstance(cap, dict)]
+    by_status = {status: [] for status in STATUS_ORDER}
+    for cap in capabilities:
+        by_status.setdefault(str(cap.get("status", "")), []).append(cap)
+
+    for status in STATUS_ORDER:
+        lines.extend([f"## {STATUS_TITLE[status]}", ""])
+        entries = by_status.get(status, [])
+        if not entries:
+            lines.extend(["- none", ""])
+            continue
+        for cap in sorted(entries, key=lambda item: (str(item.get("env", "")), str(item.get("name", "")))):
+            name = cap.get("name", "")
+            env = cap.get("env", "")
+            confidence = cap.get("confidence", "")
+            blocked_by = cap.get("blocked_by") or []
+            suffix = ""
+            if status == "blocked" and blocked_by:
+                suffix = f": blocked by {', '.join(str(item) for item in blocked_by)}"
+            lines.append(f"- {name} [{env}] confidence={confidence}{suffix}")
+            summary = str(cap.get("summary") or "").strip()
+            if summary:
+                lines.append(f"  Summary: {summary}")
+            reason = str(cap.get("reason") or "").strip()
+            if reason:
+                lines.append(f"  Reason: {reason}")
+            evidence = cap.get("evidence") or []
+            if evidence:
+                rendered = "; ".join(evidence_target(item) for item in evidence if isinstance(item, dict))
+                if rendered:
+                    lines.append(f"  Evidence: {rendered}")
+            verification = cap.get("verification")
+            if isinstance(verification, dict):
+                target = evidence_target(verification)
+                if target:
+                    lines.append(f"  Verification: {target}")
+            enables = cap.get("enables") or []
+            if enables:
+                lines.append(f"  Enables: {', '.join(str(item) for item in enables)}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def demote_markdown(text: str) -> list[str]:
+    lines: list[str] = []
+    for line in text.rstrip().splitlines():
+        if line.startswith("## "):
+            lines.append("#### " + line[3:])
+        elif line.startswith("# "):
+            lines.append("### " + line[2:])
+        else:
+            lines.append(line)
+    return lines
+
+
+def render_metadata(data: dict[str, Any]) -> str:
+    fields = (
+        ("title", data.get("title")),
+        ("platform", data.get("platform")),
+        ("source", data.get("source")),
+        ("problem_id", data.get("problem_id")),
+        ("challenge_type", data.get("challenge_type")),
+        ("tags", ", ".join(str(item) for item in data.get("tags", []) if str(item).strip()) if isinstance(data.get("tags"), list) else data.get("tags")),
+        ("points", data.get("points")),
+        ("level", data.get("level")),
+        ("docker", data.get("docker")),
+        ("annex", data.get("annex")),
+        ("downloaded_at", data.get("downloaded_at")),
+        ("evidence_dir", data.get("evidence_dir")),
+    )
+    lines = ["# Metadata", ""]
+    for label, value in fields:
+        if value is None or value == "" or value == []:
+            continue
+        lines.append(f"- {label}: {value}")
+    description = str(data.get("description") or "").strip()
+    if description:
+        lines.extend(["", "## Description", "", description])
+    local_files = data.get("local_files")
+    if isinstance(local_files, list) and local_files:
+        lines.extend(["", "## Local Files", ""])
+        lines.extend(f"- {item}" for item in local_files)
+    tracked_files = data.get("tracked_files")
+    if isinstance(tracked_files, list) and tracked_files:
+        lines.extend(["", "## Tracked Files", ""])
+        lines.extend(f"- {item}" for item in tracked_files)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_cognition(data: dict[str, Any]) -> str:
+    lines = [
+        "# Cognition",
+        "",
+        f"- challenge: {data.get('challenge', '')}",
+        "- source: cognition.json",
+        "",
+        "> Generated from `cognition.json`. Do not edit this file directly.",
+        "",
+        "## Metadata",
+        "",
+    ]
+    lines.extend(demote_markdown(render_metadata(data["metadata"])))
+    lines.extend([
+        "",
+        "## State",
+        "",
+    ])
+    lines.extend(demote_markdown(render_state(data["state"])))
+    lines.extend(["", "## Facts", ""])
+    lines.extend(demote_markdown(render_facts(data["facts"])))
+    lines.extend(["", "## Capabilities", ""])
+    lines.extend(demote_markdown(render_capabilities(data["capabilities"])))
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def render_docs(challenge_dir: Path) -> None:
-    facts = load_json(challenge_dir / "facts.json")
-    state = load_json(challenge_dir / "state.json")
-    errors = validate_facts(facts) + validate_state(state)
+    data = load_cognition(challenge_dir)
+    changed = normalize_cognition(data, challenge_dir)
+    errors = validate_docs(challenge_dir)
     if errors:
         raise StateDocError("; ".join(errors))
-    (challenge_dir / "FACTS.md").write_text(render_facts(facts), encoding="utf-8")
-    (challenge_dir / "STATE.md").write_text(render_state(state), encoding="utf-8")
-
-
-def import_markdown(challenge_dir: Path) -> None:
-    if (challenge_dir / "FACTS.md").exists():
-        write_json(challenge_dir / "facts.json", facts_from_markdown(challenge_dir / "FACTS.md", challenge_dir.name))
-    if (challenge_dir / "STATE.md").exists():
-        write_json(challenge_dir / "state.json", state_from_markdown(challenge_dir / "STATE.md", challenge_dir.name))
-    render_docs(challenge_dir)
+    if changed:
+        write_json(cognition_path(challenge_dir), data)
+    (challenge_dir / "COGNITION.md").write_text(render_cognition(data), encoding="utf-8")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Manage Amadeus facts/state JSON and generated Markdown")
-    parser.add_argument("command", choices=("init", "validate", "render", "import-md"))
+    parser = argparse.ArgumentParser(description="Manage Amadeus cognition JSON and generated Markdown")
+    parser.add_argument("command", choices=("init", "validate", "render"))
     parser.add_argument("challenge_dir", nargs="?", default=".")
     args = parser.parse_args()
     challenge_dir = Path(args.challenge_dir).resolve()
     try:
         if args.command == "init":
             init_docs(challenge_dir)
-            print(f"initialized {challenge_dir}/facts.json")
-            print(f"initialized {challenge_dir}/state.json")
-            print(f"rendered {challenge_dir}/FACTS.md")
-            print(f"rendered {challenge_dir}/STATE.md")
+            print(f"initialized {challenge_dir}/cognition.json")
+            print(f"rendered {challenge_dir}/COGNITION.md")
         elif args.command == "validate":
             errors = validate_docs(challenge_dir)
             if errors:
                 for error in errors:
                     print(f"state-docs: {error}", file=sys.stderr)
                 return 1
-            print(f"valid {challenge_dir}/facts.json")
-            print(f"valid {challenge_dir}/state.json")
+            print(f"valid {challenge_dir}/cognition.json")
         elif args.command == "render":
             render_docs(challenge_dir)
-            print(f"rendered {challenge_dir}/FACTS.md")
-            print(f"rendered {challenge_dir}/STATE.md")
-        elif args.command == "import-md":
-            import_markdown(challenge_dir)
-            print(f"imported markdown into {challenge_dir}/facts.json")
-            print(f"imported markdown into {challenge_dir}/state.json")
+            print(f"rendered {challenge_dir}/COGNITION.md")
     except StateDocError as exc:
         print(f"state-docs: {exc}", file=sys.stderr)
         return 1

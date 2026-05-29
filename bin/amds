@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--group NAME] [--append TEXT] [--mode solve|guide|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse] [--session ID|latest] <challenge|path|url> [-- codex_args...]
+usage: amds [--print] [--dry-run] [--group NAME] [--append TEXT] [--mode solve|guide|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- codex_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
@@ -26,6 +26,7 @@ examples:
   amds --crypto crypto_chal
   amds --misc misc_chal
   amds --reverse rev_chal
+  amds --workflow x402 audit_target
   amds -w pwn newnote
   amds pwn newnote
   amds guide pwn defcon/newnote
@@ -49,7 +50,7 @@ behavior:
   - exec mode accepts --workflow to force the solve workflow after fetch
   - CTF category is selected by --workflow, defaulting to pwn for solve mode
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
-  - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse
+  - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse, --x402
   - launches codex with the current CLI equivalent of "codex --yolo"
 EOF
 }
@@ -179,7 +180,7 @@ find_fetched_challenge() {
             dirname "$file"
             return 0
         fi
-    done < <(find "${root_dir}/challenges" -mindepth 2 -type f \( -name description.md -o -name facts.json \) | sort)
+    done < <(find "${root_dir}/challenges" -mindepth 2 -type f \( -name description.md -o -name cognition.json \) | sort)
 
     return 1
 }
@@ -191,11 +192,8 @@ infer_workflow_from_challenge() {
     if [ -f "${challenge_dir}/description.md" ]; then
         category="$(sed -n 's/^- Category:[[:space:]]*//p' "${challenge_dir}/description.md" | head -n 1)"
     fi
-    if [ -z "$category" ] && [ -f "${challenge_dir}/metadata.json" ]; then
-        category="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("challenge_type",""))' "${challenge_dir}/metadata.json" 2>/dev/null || true)"
-    fi
-    if [ -z "$category" ] && [ -f "${challenge_dir}/facts.json" ]; then
-        category="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); print(next((str(item).split(":",1)[1].strip() for section in data.get("sections",[]) for item in section.get("items",[]) if str(item).lower().startswith("category:")), ""))' "${challenge_dir}/facts.json" 2>/dev/null || true)"
+    if [ -z "$category" ] && [ -f "${challenge_dir}/cognition.json" ]; then
+        category="$(python3 -c 'import json,sys; root=json.load(open(sys.argv[1])); meta=root.get("metadata",{}); facts=root.get("facts",{}); print(meta.get("challenge_type") or next((str(item).split(":",1)[1].strip() for section in facts.get("sections",[]) for item in section.get("items",[]) if str(item).lower().startswith("category:")), ""))' "${challenge_dir}/cognition.json" 2>/dev/null || true)"
     fi
 
     case "$(printf '%s' "${category:-}" | tr '[:upper:]' '[:lower:]')" in
@@ -204,6 +202,7 @@ infer_workflow_from_challenge() {
         crypto*) printf '%s\n' crypto ;;
         misc*) printf '%s\n' misc ;;
         reverse*) printf '%s\n' reverse ;;
+        x402*) printf '%s\n' x402 ;;
         *) printf '%s\n' pwn ;;
     esac
 }
@@ -279,7 +278,7 @@ while [ $# -gt 0 ]; do
             esac
             shift 2
             ;;
-        --pwn|--web|--crypto|--misc|--reverse)
+        --pwn|--web|--crypto|--misc|--reverse|--x402)
             workflow="${1#--}"
             workflow_explicit=1
             shift
@@ -447,7 +446,7 @@ case "$mode" in
                 if [ "$workflow_explicit" = "1" ]; then
                     printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then %q --mode solve --workflow %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow"
                 else
-                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then infer workflow from description.md/metadata.json/facts.json\n' "$prompt_root"
+                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then infer workflow from description.md/cognition.json\n' "$prompt_root"
                 fi
             fi
             exit 0

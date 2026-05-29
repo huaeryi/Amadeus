@@ -21,8 +21,8 @@ STATIC_DIR = ROOT_DIR / "webui" / "static"
 IMGS_DIR = ROOT_DIR / "webui" / "imgs"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
-CORE_DOCUMENTS = ("state.json", "STATE.md", "facts.json", "FACTS.md", "capabilities.json", "CAPABILITIES.md", "metadata.json", ".ctf-files", ".pwnrun")
-GENERATED_DOCUMENTS = {"STATE.md", "FACTS.md", "CAPABILITIES.md"}
+CORE_DOCUMENTS = ("cognition.json", "COGNITION.md", ".pwnrun")
+GENERATED_DOCUMENTS = {"COGNITION.md"}
 CHALLENGE_NAME_RE = re.compile(r"^[^\\\x00]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
 BINARY_PREVIEW_LIMIT = 4096
@@ -62,22 +62,15 @@ def read_text_if_exists(path: Path) -> str:
 
 
 def read_state_stage(path: Path) -> str:
-    state_path = path / "STATE.md"
-    if not state_path.exists():
-        return "unknown"
-
-    seen_stage = False
-    for line in state_path.read_text(encoding="utf-8").splitlines():
-        if line.strip().lower() == "# current stage":
-            seen_stage = True
-            continue
-        if not seen_stage:
-            continue
-
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        return stripped
+    cognition_path = path / "cognition.json"
+    if cognition_path.exists():
+        try:
+            data = json.loads(cognition_path.read_text(encoding="utf-8"))
+            stage = data.get("state", {}).get("current_stage", "")
+            if isinstance(stage, str) and stage.strip():
+                return stage.strip()
+        except json.JSONDecodeError:
+            pass
 
     return "unknown"
 
@@ -105,24 +98,23 @@ def normalize_challenge_type(value: str) -> str:
         "forensic": "forensics",
         "osint": "osint",
         "malware": "malware",
+        "x402": "x402",
     }
     return aliases.get(normalized, "")
 
 
 def read_challenge_metadata(path: Path) -> dict[str, Any]:
-    metadata_path = path / "metadata.json"
-    metadata: dict[str, Any] = {}
-    if metadata_path.exists():
-        try:
-            parsed = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if isinstance(parsed, dict):
-                metadata = parsed
-        except json.JSONDecodeError:
-            metadata = {}
-
     description_text = read_text_if_exists(path / "description.md")
-    state_text = read_text_if_exists(path / "STATE.md")
-    facts_text = read_text_if_exists(path / "FACTS.md")
+    cognition: dict[str, Any] = {}
+    cognition_path = path / "cognition.json"
+    if cognition_path.exists():
+        try:
+            parsed = json.loads(cognition_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                cognition = parsed
+        except json.JSONDecodeError:
+            cognition = {}
+    metadata = cognition.get("metadata", {}) if isinstance(cognition.get("metadata"), dict) else {}
 
     title = str(metadata.get("title") or "").strip()
     if not title:
@@ -133,10 +125,20 @@ def read_challenge_metadata(path: Path) -> dict[str, Any]:
     if not challenge_type:
         challenge_type = parse_markdown_field(description_text, "Category")
     if not challenge_type:
-        challenge_type = parse_markdown_field(facts_text, "category")
+        facts = cognition.get("facts", {}) if isinstance(cognition.get("facts"), dict) else {}
+        for section in facts.get("sections", []) if isinstance(facts.get("sections"), list) else []:
+            items = section.get("items", []) if isinstance(section, dict) else []
+            for item in items:
+                text = str(item)
+                if text.lower().startswith("category:"):
+                    challenge_type = text.split(":", 1)[1].strip()
+                    break
+            if challenge_type:
+                break
     if not challenge_type:
-        match = re.search(r"^- challenge type:\s*(.+)$", state_text, re.MULTILINE)
-        challenge_type = match.group(1).strip() if match else ""
+        state = cognition.get("state", {}) if isinstance(cognition.get("state"), dict) else {}
+        profile = state.get("target_profile", {}) if isinstance(state.get("target_profile"), dict) else {}
+        challenge_type = str(profile.get("challenge_type") or "").strip()
     challenge_type = normalize_challenge_type(challenge_type)
 
     tags = metadata.get("tags", [])
@@ -180,24 +182,6 @@ def run_script(script_name: str, *args: str) -> dict[str, Any]:
     return payload
 
 
-def render_capabilities(path: Path) -> dict[str, Any]:
-    result = subprocess.run(
-        ["python3", str(BIN_DIR / "capabilities.py"), "render", str(path)],
-        cwd=ROOT_DIR,
-        capture_output=True,
-        text=True,
-    )
-    payload = {
-        "command": ["python3", str(BIN_DIR / "capabilities.py"), "render", str(path)],
-        "code": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-    }
-    if result.returncode != 0:
-        raise ApiError(400, "capabilities render failed", payload)
-    return payload
-
-
 def render_state_docs(path: Path) -> dict[str, Any]:
     result = subprocess.run(
         ["python3", str(BIN_DIR / "state_docs.py"), "render", str(path)],
@@ -212,7 +196,7 @@ def render_state_docs(path: Path) -> dict[str, Any]:
         "stderr": result.stderr,
     }
     if result.returncode != 0:
-        raise ApiError(400, "state/facts render failed", payload)
+        raise ApiError(400, "cognition render failed", payload)
     return payload
 
 
@@ -493,7 +477,7 @@ def challenge_summary(path: Path) -> dict[str, Any]:
         "metadata": metadata,
         "challenge_type": metadata.get("challenge_type", ""),
         "tags": metadata.get("tags", []),
-        "initialized": (path / "STATE.md").exists() and (path / "FACTS.md").exists(),
+        "initialized": (path / "cognition.json").exists() and (path / "COGNITION.md").exists(),
         "state_stage": state_stage,
         "solve_status": solve_status,
         "core_files": core_files,
@@ -695,15 +679,7 @@ class AmadeusHandler(SimpleHTTPRequestHandler):
                         old_content = read_text_if_exists(document_path)
                         document_path.write_text(content, encoding="utf-8")
                         render_result = None
-                        if document_name == "capabilities.json":
-                            try:
-                                render_result = render_capabilities(path)
-                            except ApiError:
-                                document_path.write_text(old_content, encoding="utf-8")
-                                if old_content:
-                                    render_capabilities(path)
-                                raise
-                        if document_name in {"facts.json", "state.json"}:
+                        if document_name == "cognition.json":
                             try:
                                 render_result = render_state_docs(path)
                             except ApiError:

@@ -11,6 +11,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "${script_dir}/.." && pwd)"
 
 mkdir -p "${target_dir}"
+mkdir -p "${target_dir}/evidence"
 
 git_commit_if_needed() {
     local commit_name="$1"
@@ -42,7 +43,7 @@ git_commit_if_needed() {
     echo "created git checkpoint [ckpt0 ${commit_name}]"
 }
 
-for name in .ctf-files .pwnrun metadata.json capabilities.json facts.json state.json; do
+for name in .pwnrun cognition.json exp_example.py; do
     src="${root_dir}/templates/${name}"
     dst="${target_dir}/${name}"
     if [ ! -e "${dst}" ]; then
@@ -51,30 +52,14 @@ for name in .ctf-files .pwnrun metadata.json capabilities.json facts.json state.
     fi
 done
 
-ctf_files="${target_dir}/.ctf-files"
-if [ -f "${ctf_files}" ]; then
-    for name in metadata.json facts.json state.json STATE.md FACTS.md capabilities.json CAPABILITIES.md .pwnrun; do
-        if ! grep -Fxq "${name}" "${ctf_files}"; then
-            printf '%s\n' "${name}" >> "${ctf_files}"
-            echo "tracked ${name} in ${ctf_files}"
-        fi
-    done
-fi
-
 python3 "${root_dir}/bin/state_docs.py" init "${target_dir}" >/dev/null
-echo "initialized ${target_dir}/facts.json"
-echo "initialized ${target_dir}/state.json"
-echo "rendered ${target_dir}/FACTS.md"
-echo "rendered ${target_dir}/STATE.md"
+echo "initialized ${target_dir}/cognition.json"
+echo "rendered ${target_dir}/COGNITION.md"
 
 if [ -f "${target_dir}/exp_template.py" ] && [ ! -e "${target_dir}/exp.py" ]; then
     cp "${target_dir}/exp_template.py" "${target_dir}/exp.py"
     echo "created ${target_dir}/exp.py from exp_template.py"
 fi
-
-python3 "${root_dir}/bin/capabilities.py" init "${target_dir}" >/dev/null
-echo "initialized ${target_dir}/capabilities.json"
-echo "rendered ${target_dir}/CAPABILITIES.md"
 
 challenge_name="$(basename "$(cd "${target_dir}" && pwd)")"
 git_commit_if_needed "${challenge_name}"

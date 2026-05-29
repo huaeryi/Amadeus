@@ -89,7 +89,7 @@ function preferredPreviewPath(detail) {
     return state.activeFilePath;
   }
 
-  const preferred = ["exp.py", "solve.py", "wp.md", "metadata.json", "exp_template.py", "README.md"];
+  const preferred = ["exp.py", "solve.py", "wp.md", "cognition.json", "exp_template.py", "README.md"];
   for (const name of preferred) {
     if (paths.includes(name)) {
       return name;

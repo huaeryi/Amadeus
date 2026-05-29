@@ -10,9 +10,10 @@ challenges/<challenge-name>/
 
 Typical files inside a challenge directory:
 
-- `STATE.md`: current stage, next steps, rejected branches, and open questions
-- `FACTS.md`: confirmed facts only
-- `.ctf-files`: files tracked by Amadeus checkpoints
+- `cognition.json`: machine-readable facts, state, and capabilities
+- `COGNITION.md`: generated human-readable view of cognition
+- `evidence/`: command output, debugger logs, screenshots, and script result artifacts
+- `cognition.json.metadata.tracked_files`: important files tracked by the workflow
 - `.pwnrun`: pwn run configuration for `bin/run_pwn.sh`
 - `attempts/`: notes for failed or abandoned branches
 - `checkpoints/`: rollback snapshots created by `bin/checkpoint.sh`

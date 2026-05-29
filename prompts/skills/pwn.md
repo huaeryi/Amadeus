@@ -12,7 +12,7 @@
 
 核心流程：
 1. 先读取题目目录中的附件，并确认主程序、patched binary、libc、ld、`exp_template.py`
-2. `state.json` 记录当前阶段、下一步、checkpoint 计划、失败路线和开放问题
+2. `cognition.json.state` 记录当前阶段、下一步、checkpoint 计划、失败路线和开放问题
 3. 如果存在 `exp_template.py`，基于它生成 `exp.py`
 4. 优先使用 `{{root_name}}/bin/run_pwn.sh {{challenge_path}} [local|remote|patched]` 统一执行本地、远程和 patched 运行
 5. 如果使用 `run_pwn.sh`，保持 `.pwnrun` 中的 `BIN`、`PATCHED_BIN`、`LIBC`、`LD`、`HOST`、`PORT` 准确
@@ -29,10 +29,11 @@ libc 策略：
 
 调试工具策略：
 - 优先使用 `pwndbg-mcp` 辅助读取寄存器、栈、堆、bins、tcache、vmmap、断点和崩溃现场
-- 使用 `pwndbg-mcp` 得到的运行时结论必须写入 `facts.json`，推测和下一步仍写入 `state.json`
+- 使用 `pwndbg-mcp` 得到的运行时结论必须写入 `cognition.json.facts`，推测和下一步仍写入 `cognition.json.state`
+- 需要保留的 gdb/pwndbg/checksec/ROPgadget/脚本输出写入 `evidence/`，再在 `cognition.json.facts` 或 `cognition.json.capabilities[].evidence` 引用相对路径
 - 默认把 `pwndbg-mcp` 视为绑定 `127.0.0.1:8780` 的当前题目调试会话；如果端口不可用，先检查是否已有旧会话占用，再决定复用当前题会话或切到 `8781`、`8782` 等新端口
 - 不要让多个题目共用同一个 gdb/pwndbg inferior；工具安装可以共用，但每个题目应有独立 gdb 会话和独立 MCP 端口或明确的当前会话绑定
-- 使用或切换 `pwndbg-mcp` 前，在 `state.json.debug.pwndbg_mcp` 记录当前端点，例如 `127.0.0.1:8780`，并在 `state.json.debug.session_scope` 写明 `single challenge`
+- 使用或切换 `pwndbg-mcp` 前，在 `cognition.json.state.debug.pwndbg_mcp` 记录当前端点，例如 `127.0.0.1:8780`，并在 `cognition.json.state.debug.session_scope` 写明 `single challenge`
 - 从 `pwndbg-mcp` 读取证据前，先确认当前 gdb 加载的 binary 路径属于 `{{challenge_path}}`；如果不属于，停止读取并重新启动该题目的 gdb/pwndbg 会话
 
 先读：
@@ -40,31 +41,32 @@ libc 策略：
 
 完成标准：
 - 基于 `exp_template.py` 编写 `exp.py`；没有模板时直接创建可复现的 `exp.py`，用`pwntools`
+- 尽量少用很长的gdb脚本
 - 需要时用 pwndbg、gdb、pwndbg-mcp 验证 offset、保护、leak、堆布局、寄存器状态和利用链
 - 必须实际运行 exploit 拿到 flag，并把 flag 结果作为完成标准
-- 最终产出 `exp.py` 和 `wp.md`
+- 最终产出 `exp.py` 和 `wp.md`以及中文`wp_cn.md`
 - 如果缺少远程信息、附件信息或验证条件，再向我询问
 
 建议 pwn loop：
 1. 检查保护和运行环境
 2. 识别 bug class 和 exploitation primitive
-3. 把确认过的 offset、leak、gadget、libc 推导写进 `facts.json`
-4. 把已获得、观察到、猜测中、被阻塞、作为目标的 exploitation capability 写进 `capabilities.json`
+3. 把确认过的 offset、leak、gadget、libc 推导写进 `cognition.json.facts`
+4. 把已获得、观察到、猜测中、被阻塞、作为目标的 exploitation capability 写进 `cognition.json.capabilities`
 5. 配置异常时使用 `{{root_name}}/bin/run_pwn.sh {{challenge_path}} info` 检查 binary/libc/ld/host/port 解析状态
-6. 第一个稳定 primitive 后按公共策略创建 `primitive-confirmed` 或同等语义 checkpoint
-7. libc 未知时，把符号泄露作为独立里程碑，不要提前套 offset 或 one_gadget
-8. 第一个稳定 PIE、canary、heap 或 libc leak 后按公共策略创建对应 checkpoint
-9. risky pivot 前和 remote adaptation 前按公共策略再次 checkpoint
-10. 先本地验证最终 exploit，再适配远程
-11. 只有最终 exploit 稳定且跟踪文件值得保留时，才创建 `flag-confirmed`
+6. libc 未知时，把符号泄露作为独立里程碑，不要提前套 offset 或 one_gadget
+7. 第一个稳定 PIE、canary、heap 或 libc leak 后按公共策略创建对应 checkpoint
+8. risky pivot 前和 remote adaptation 前按公共策略再次 checkpoint
+9.  先本地验证最终 exploit，再适配远程
+10. 只有最终 exploit 稳定且跟踪文件值得保留时，才创建 `flag-confirmed`
 
 执行约束：
 - 先做本地分析和验证，不要跳过检查
 - 在测试或反作弊环境中，不要用 web 搜索 writeup、公开 exploit 仓库或题目解法；本地题目文件和 workspace 材料是主要事实来源
 - 不要假设旧 exp 一定可用，结论必须基于当前目录中的文件和验证结果
-- 只把确认过的事实写进 `facts.json`
-- 推测、分支路线和下一步放进 `state.json`
+- 只把确认过的事实写进 `cognition.json.facts`
+- 推测、分支路线和下一步放进 `cognition.json.state`
 - checkpoint 和回退统一遵守 `{{root_name}}/prompts/cmds/checkpoint.md`
+- 长输出和复现实验结果统一存到 `evidence/`，不要把整段输出塞进 `cognition.json`
 - 新写的 `exp.py` 尽量兼容 `run_pwn.sh` 导出的 `PWN_*` 环境变量
 - 不要在 libc 未确认时直接套用本机 libc 的偏移
 - 不要从本地其他目录获取 libc/ld 来“补全”当前题目环境

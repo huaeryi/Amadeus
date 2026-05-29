@@ -32,7 +32,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CHALLENGES_DIR = ROOT / "challenges"
 INIT_SCRIPT = ROOT / "bin" / "init_challenge.sh"
-STATE_DOCS_SCRIPT = ROOT / "bin" / "state_docs.py"
+sys.path.insert(0, str(ROOT / "bin"))
+import state_docs  # noqa: E402
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -188,8 +189,21 @@ def run_init(challenge_dir: Path) -> None:
     subprocess.run([str(INIT_SCRIPT), str(challenge_dir)], cwd=ROOT, check=True)
 
 
-def import_state_docs(challenge_dir: Path) -> None:
-    subprocess.run(["python3", str(STATE_DOCS_SCRIPT), "import-md", str(challenge_dir)], cwd=ROOT, check=True)
+def update_cognition(
+    challenge_dir: Path,
+    metadata: dict[str, Any],
+    facts_text: str,
+    state_text: str,
+    overwrite: bool,
+) -> None:
+    if not overwrite:
+        return
+    data = state_docs.load_cognition(challenge_dir)
+    data["metadata"] = metadata
+    data["facts"] = state_docs.facts_from_markdown_text(facts_text, challenge_dir.name)
+    data["state"] = state_docs.state_from_markdown_text(state_text, challenge_dir.name)
+    state_docs.write_json(challenge_dir / "cognition.json", data)
+    state_docs.render_docs(challenge_dir)
 
 
 def sniff_file(path: Path) -> str:
@@ -365,7 +379,18 @@ def challenge_metadata(problem_id: str, problem: dict[str, Any], source_url: str
         "annex": problem.get("annex"),
         "downloaded_at": time.strftime("%Y-%m-%d %H:%M:%S %z"),
         "description": str(problem.get("desc") or problem.get("description") or "").strip(),
+        "evidence_dir": "evidence",
         "local_files": [path.name for path in files],
+        "tracked_files": [
+            "evidence/",
+            "description.md",
+            "exp.py",
+            "exp_template.py",
+            "wp.md",
+            "cognition.json",
+            "COGNITION.md",
+            ".pwnrun",
+        ],
     }
 
 
@@ -445,7 +470,7 @@ def state_markdown(problem: dict[str, Any], main_binary: Path | None, attachment
             "# Target Profile",
             "",
             f"- challenge type: {category_name(problem)}",
-            "- protections: see FACTS.md",
+            "- protections: see cognition.json.facts",
             f"- likely bug class: {tags}" if tags else "- likely bug class:",
             "",
             "# Current Primitive",
@@ -505,7 +530,7 @@ def main() -> int:
 
     title = safe_title(str(problem.get("title") or f"nssctf_{problem_id}"))
     challenge_dir = CHALLENGES_DIR / safe_group_path(args.group) / title
-    fresh_state_docs = not (challenge_dir / "facts.json").exists() and not (challenge_dir / "state.json").exists()
+    fresh_cognition = not (challenge_dir / "cognition.json").exists()
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
 
@@ -536,26 +561,13 @@ def main() -> int:
         description_markdown(problem_id, problem, source_url, local_files, attachment_error),
         args.overwrite,
     )
-    write_text_if_allowed(
-        challenge_dir / "metadata.json",
-        json.dumps(challenge_metadata(problem_id, problem, source_url, local_files), indent=2, ensure_ascii=False) + "\n",
-        args.overwrite,
-    )
-    write_text_if_allowed(
-        challenge_dir / "FACTS.md",
+    update_cognition(
+        challenge_dir,
+        challenge_metadata(problem_id, problem, source_url, local_files),
         facts_markdown(problem_id, problem, local_files, main_binary, checksec_lines, attachment_error),
-        args.overwrite or fresh_state_docs,
+        state_markdown(problem, main_binary, attachment_error),
+        args.overwrite or fresh_cognition,
     )
-    write_text_if_allowed(challenge_dir / "STATE.md", state_markdown(problem, main_binary, attachment_error), args.overwrite or fresh_state_docs)
-    if args.overwrite or fresh_state_docs:
-        import_state_docs(challenge_dir)
-
-    ctf_files = challenge_dir / ".ctf-files"
-    if ctf_files.exists():
-        text = ctf_files.read_text(encoding="utf-8")
-        additions = [name for name in ("description.md", "metadata.json") if name not in text]
-        if additions:
-            ctf_files.write_text(text.rstrip() + "\n" + "\n".join(additions) + "\n", encoding="utf-8")
 
     if args.print_dir:
         print(challenge_dir)
