@@ -14,7 +14,7 @@
 1. 读取题目目录中的附件、题面、脚本、流量、图片、音频、压缩包和输出文件
 2. 先识别文件类型、编码链、压缩/嵌套结构、隐写、协议、约束求解、jail、游戏逻辑或交互协议
 3. 优先写可复现的 `solve.py` 或 `exp.py`，不要只保留手工步骤
-4. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建 checkpoint；misc 常用名称例如 `env-ok`、`format-confirmed`、`decode-chain-confirmed`、`oracle-confirmed`、`payload-confirmed`
+4. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建具体 checkpoint；misc 常用名称例如 `file-types-profiled`、`zip-layer-3-extracted`、`qr-grid-decoded`、`pcap-dns-channel-found`、`jail-escape-payload-working`
 5. 如果某条路线失败，不要在脏状态上持续修补；在 `cognition.json.state` 的 rejected_branches 记录失败原因，并按公共 checkpoint 策略回退或开分支
 6. 必须实际运行脚本或复现步骤拿到 flag，并把 flag 结果作为完成标准
 7. 最终产出 `exp.py` 或 `solve.py`，以及 `wp.md`

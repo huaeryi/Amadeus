@@ -21,11 +21,12 @@
 
 libc 策略：
 - 如果题目提供 libc 和 ld，优先使用题目提供的版本
-- 本地复现优先使用 patchelf、题目提供的 loader，或 `run_pwn.sh patched`
+- 本地复现优先使用 patchelf生成`xxx_patched`再使用`pwndbg-mcp`调试
 - 不要在 challenge-local libc 应存在但尚未确认时直接使用系统 libc
 - 如果题目没有给 libc，先泄露足够符号，再根据泄露结果使用 `libc.rip` 等库匹配站
 - 不要从本地其他 challenge、历史题目、下载缓存、工具缓存或任意非当前题目目录复制 libc/ld
 - 只有当前题目目录中的附件、用户明确指定的路径、远程泄露后匹配出的 libc，才可以作为 libc 来源
+- 如果只有libc没有ld，尝试补全，可以websearch
 
 调试工具策略：
 - 优先使用 `pwndbg-mcp` 辅助读取寄存器、栈、堆、bins、tcache、vmmap、断点和崩溃现场
@@ -54,10 +55,10 @@ libc 策略：
 4. 把已获得、观察到、猜测中、被阻塞、作为目标的 exploitation capability 写进 `cognition.json.capabilities`
 5. 配置异常时使用 `{{root_name}}/bin/run_pwn.sh {{challenge_path}} info` 检查 binary/libc/ld/host/port 解析状态
 6. libc 未知时，把符号泄露作为独立里程碑，不要提前套 offset 或 one_gadget
-7. 第一个稳定 PIE、canary、heap 或 libc leak 后按公共策略创建对应 checkpoint
-8. risky pivot 前和 remote adaptation 前按公共策略再次 checkpoint
-9.  先本地验证最终 exploit，再适配远程
-10. 只有最终 exploit 稳定且跟踪文件值得保留时，才创建 `flag-confirmed`
+7. 第一个稳定 PIE、canary、heap 或 libc leak 后按对象创建 checkpoint，例如 `pie-base-leaked`、`canary-value-leaked`、`libc-base-resolved`
+8. risky pivot 前和 remote adaptation 前按具体风险创建 checkpoint，例如 `before-fsop-pivot`、`before-remote-libc-switch`
+9. 先本地验证最终 exploit，再适配远程
+10. 只有最终 exploit 稳定且跟踪文件值得保留时，才创建描述结果的 checkpoint，例如 `remote-shell-verified` 或 `flag-string-verified`
 
 执行约束：
 - 先做本地分析和验证，不要跳过检查

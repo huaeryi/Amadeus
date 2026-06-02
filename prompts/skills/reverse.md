@@ -15,7 +15,7 @@
 2. 先确认文件类型、架构、保护、打包/混淆方式、输入输出行为和 flag 校验路径
 3. 优先写可复现的 `solve.py` 或 `exp.py`，用于还原算法、求解约束、patch 或自动化调试
 4. 对复杂校验逻辑，优先抽取算法、符号执行、约束求解、模拟 VM 或 patch 验证，不要只靠手工猜
-5. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建 checkpoint；reverse 常用名称例如 `env-ok`、`format-confirmed`、`checker-found`、`algorithm-recovered`、`constraints-solved`
+5. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建具体 checkpoint；reverse 常用名称例如 `binary-arch-profiled`、`checker-function-located`、`vm-opcodes-mapped`、`z3-model-solves`、`patched-checker-accepted`
 6. 如果某条路线失败，不要在脏状态上持续修补；在 `cognition.json.state` 的 rejected_branches 记录失败原因，并按公共 checkpoint 策略回退或开分支
 7. 必须实际运行脚本或目标程序验证 flag，并把 flag 结果作为完成标准
 8. 最终产出 `exp.py` 或 `solve.py`，以及 `wp.md`

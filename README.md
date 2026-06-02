@@ -254,9 +254,9 @@ Checkpoint 是这次工作流的核心增量之一。它用于保存已经确认
 创建 checkpoint：
 
 ```bash
-bin/checkpoint.sh env-ok challenges/baby_tcache
-bin/checkpoint.sh primitive-confirmed challenges/baby_tcache
-bin/checkpoint.sh libc-base-confirmed challenges/baby_tcache
+bin/checkpoint.sh env-profiled challenges/baby_tcache
+bin/checkpoint.sh canary-value-leaked challenges/baby_tcache
+bin/checkpoint.sh libc-base-resolved challenges/baby_tcache
 ```
 
 恢复 checkpoint：
@@ -277,11 +277,10 @@ bin/restore.sh <commit-hash> challenges/baby_tcache
 推荐策略：
 
 - checkpoint 是回滚锚点，不是 autosave。
-- 名称按已经确认的事实或能力命名，比如 `env-ok`、`offset-confirmed`、`canary-leaked`、`arb-write-confirmed`、`orw-working`、`flag-confirmed`。
-- 简单栈溢出或格式化字符串题通常 3 到 4 个 checkpoint。
-- 中等栈、格式化字符串或堆题通常 4 到 6 个 checkpoint。
-- 复杂 heap、seccomp、sandbox 或 kernel 题通常 5 到 8 个 checkpoint。
-- 在第一次大型 heap metadata corruption、`setcontext`、FSOP、ret2dlresolve、SROP、切换 exploit 路线、适配远程前创建 checkpoint。
+- 名称必须具体到“已验证对象 + 结果”，避免 `primitive-confirmed`、`payload-confirmed`、`flag-confirmed` 这种泛名。
+- 推荐格式是 `<area>-<fact>-<state>`，比如 `routes-auth-map-done`、`canary-value-leaked`、`arb-write-works`、`orw-chain-working`、`finding-01-replay-verified`。
+- 简单题通常 3 到 5 个 checkpoint；中等题通常 5 到 8 个；复杂题或审计项目通常 8 到 12 个。
+- 在第一次大型 heap metadata corruption、`setcontext`、FSOP、ret2dlresolve、SROP、切换 exploit 路线、适配远程、finding PoC 成功前后创建 checkpoint。
 
 ## 前端显示
 
@@ -364,7 +363,7 @@ pwn 题建议流程：
 2. 读取附件并确认 binary、libc、ld、patched binary、`exp_template.py`
 3. 用 `cognition.json.facts` 固化事实，用 `cognition.json.state` 规划路线，并渲染 `COGNITION.md`
 4. 用 `bin/run_pwn.sh <challenge_dir> info` 检查 `.pwnrun`
-5. 在稳定 primitive 或 leak 后创建 checkpoint
+5. 在稳定能力或 leak 后创建具体 checkpoint，例如 `fmt-stack-leak-works`、`libc-base-resolved`
 6. 高风险 pivot 前再创建 checkpoint
 7. 最终产出 `exp.py` 和 `wp.md`
 

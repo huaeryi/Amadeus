@@ -15,7 +15,7 @@
 2. 先本地搭建或确认服务入口，再做路由、鉴权、模板、数据库、文件上传、反序列化、SSRF、SSTI、SQLi、XSS、JWT、原型链等攻击面梳理
 3. 优先写可复现的 `exp.py`，用 requests/httpx 等脚本化 exploit，不要只靠浏览器手点
 4. 如果需要登录态、bot、admin cookie、外带服务或回连地址，先在 `cognition.json.state` 记录依赖和验证方式
-5. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建 checkpoint；web 常用名称例如 `env-ok`、`route-map-confirmed`、`auth-bypass-confirmed`、`primitive-confirmed`、`rce-confirmed`
+5. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建具体 checkpoint；web 常用名称例如 `routes-auth-map-done`、`jwt-none-rejected`、`ssti-render-control-works`、`upload-path-traversal-verified`、`rce-command-output-verified`
 6. 如果某条路线失败，不要在脏状态上持续修补；在 `cognition.json.state` 的 rejected_branches 记录失败原因，并按公共 checkpoint 策略回退或开分支
 7. 必须实际运行 exploit 拿到 flag，并把 flag 结果作为完成标准
 8. 最终产出 `exp.py` 和 `wp.md`

@@ -15,7 +15,7 @@
 2. 识别密码体制、参数规模、随机数来源、padding/模式/签名细节和可交互 oracle
 3. 优先写可复现的 `solve.py` 或 `exp.py`，不要只在 REPL 中手算
 4. 如果涉及远程交互，脚本应支持本地文件输入和远程连接两种模式
-5. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建 checkpoint；crypto 常用名称例如 `env-ok`、`params-confirmed`、`oracle-confirmed`、`key-recovered`、`plaintext-recovered`
+5. 到关键里程碑时按 `{{root_name}}/prompts/cmds/checkpoint.md` 创建具体 checkpoint；crypto 常用名称例如 `rsa-modulus-factored`、`nonce-reuse-verified`、`padding-oracle-bit-working`、`aes-key-recovered`、`plaintext-blocks-recovered`
 6. 如果某条路线失败，不要在脏状态上持续修补；在 `cognition.json.state` 的 rejected_branches 记录失败原因，并按公共 checkpoint 策略回退或开分支
 7. 必须实际运行脚本拿到 flag，并把 flag 结果作为完成标准
 8. 最终产出 `exp.py` 或 `solve.py`，以及 `wp.md`

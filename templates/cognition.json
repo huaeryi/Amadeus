@@ -85,8 +85,8 @@
     ],
     "checkpoint_plan": {
       "last_stable_checkpoint": "none yet",
-      "next_likely_checkpoint": "env-ok",
-      "after_that": "primitive-confirmed"
+      "next_likely_checkpoint": "env-profiled",
+      "after_that": "entrypoints-mapped"
     },
     "rejected_branches": ["none yet"],
     "avoid": ["none yet"],
