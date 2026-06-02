@@ -3,11 +3,15 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--group NAME] [--append TEXT] [--mode solve|guide|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- codex_args...]
+usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--group NAME] [--append TEXT] [--mode solve|guide|audit|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
+  amds --runner claude --mode solve --workflow pwn newnote
+  amds --claude audit audit_target
   amds --mode guide --workflow pwn newnote
+  amds --mode audit --workflow x402 audit_target
+  amds --runner claude audit audit_target
   amds --mode fetch https://www.nssctf.cn/problem/131
   amds fetch --group defcon https://www.nssctf.cn/problem/131
   amds --mode exec https://www.nssctf.cn/problem/131
@@ -17,6 +21,8 @@ examples:
   amds learn newnote --session 20260522-143012-pwn
   amds solve pwn newnote
   amds guide pwn newnote
+  amds audit audit_target
+  amds audit x402 audit_target
   amds fetch https://www.nssctf.cn/problem/131
   amds exec https://www.nssctf.cn/problem/131
   amds exec --workflow pwn https://www.nssctf.cn/problem/131
@@ -26,7 +32,6 @@ examples:
   amds --crypto crypto_chal
   amds --misc misc_chal
   amds --reverse rev_chal
-  amds --workflow x402 audit_target
   amds -w pwn newnote
   amds pwn newnote
   amds guide pwn defcon/newnote
@@ -37,21 +42,23 @@ examples:
   amds guide --workflow pwn newnote
   amds --workflow pwn newnote --dry-run
   amds --workflow pwn newnote -- --search -m gpt-5.5
+  amds --runner claude audit audit_target -- --model sonnet
   amds newnote
 
 behavior:
   - solve mode resolves the challenge under ./challenges/, including grouped paths like defcon/newnote
   - solve mode reads prompts/cmds/solve.md, then the --workflow prompt under prompts/skills/
   - guide mode reads prompts/cmds/guide.md, then the --workflow prompt under prompts/skills/
+  - audit mode reads prompts/cmds/audit.md, then the --workflow prompt under prompts/skills/
   - grouped challenges can live under ./challenges/<group>/<challenge>
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
   - learn mode runs the post-solve learning/reflection workflow for a challenge
   - exec mode accepts --workflow to force the solve workflow after fetch
-  - CTF category is selected by --workflow, defaulting to pwn for solve mode
+  - CTF category is selected by --workflow, defaulting to pwn for solve mode and x402 for audit mode
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
   - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse, --x402
-  - launches codex with the current CLI equivalent of "codex --yolo"
+  - launches Codex by default, or Claude when --runner claude is set
 EOF
 }
 
@@ -220,6 +227,7 @@ legacy_prompt_dir="${root_dir}/pts"
 
 print_prompt=0
 dry_run=0
+runner="${AMDS_RUNNER:-codex}"
 mode="solve"
 display_mode="solve"
 workflow="pwn"
@@ -228,7 +236,7 @@ challenge_group=""
 target_input=""
 session_input=""
 declare -a append_lines=()
-declare -a codex_args=()
+declare -a agent_args=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -244,6 +252,26 @@ while [ $# -gt 0 ]; do
             dry_run=1
             shift
             ;;
+        --runner)
+            [ $# -ge 2 ] || die "--runner requires codex or claude"
+            case "$2" in
+                codex|claude)
+                    runner="$2"
+                    ;;
+                *)
+                    die "unknown runner: $2"
+                    ;;
+            esac
+            shift 2
+            ;;
+        --codex)
+            runner="codex"
+            shift
+            ;;
+        --claude)
+            runner="claude"
+            shift
+            ;;
         -w|--workflow)
             [ $# -ge 2 ] || die "--workflow requires a name"
             workflow="$2"
@@ -256,11 +284,18 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --mode|-m)
-            [ $# -ge 2 ] || die "--mode requires solve, guide, fetch, exec, or learn"
+            [ $# -ge 2 ] || die "--mode requires solve, guide, audit, fetch, exec, or learn"
             case "$2" in
                 solve|fetch|exec)
                     mode="$2"
                     display_mode="$2"
+                    ;;
+                audit)
+                    mode="audit"
+                    display_mode="audit"
+                    if [ "$workflow_explicit" = "0" ]; then
+                        workflow="x402"
+                    fi
                     ;;
                 guide)
                     mode="solve"
@@ -295,7 +330,7 @@ while [ $# -gt 0 ]; do
             ;;
         --)
             shift
-            codex_args=("$@")
+            agent_args=("$@")
             break
             ;;
         -*)
@@ -307,6 +342,13 @@ while [ $# -gt 0 ]; do
                     solve|fetch|exec)
                         mode="$1"
                         display_mode="$1"
+                        shift
+                        continue
+                        ;;
+                    audit)
+                        mode="audit"
+                        display_mode="audit"
+                        workflow="x402"
                         shift
                         continue
                         ;;
@@ -333,6 +375,12 @@ while [ $# -gt 0 ]; do
                 continue
             fi
 
+            if [ "$mode" = "audit" ] && [ -z "$target_input" ] && [ "$workflow_explicit" = "0" ] && [ "$workflow" = "x402" ] && template_exists "$1"; then
+                workflow="$1"
+                shift
+                continue
+            fi
+
             if [ -n "$target_input" ]; then
                 die "unexpected extra argument: $1"
             fi
@@ -343,6 +391,11 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$target_input" ] || die "target is required"
+
+case "$runner" in
+    codex|claude) ;;
+    *) die "unknown runner: $runner" ;;
+esac
 
 group_option=""
 challenge_group_prefix=""
@@ -357,11 +410,11 @@ session_prompt_value=""
 session_prompt_path=""
 
 case "$mode" in
-    solve)
+    solve|audit)
         if [ -n "$challenge_group" ]; then
             case "$target_input" in
                 /*|challenges/*|"${root_name}/challenges/"*|*/*)
-                    die "--group with solve/guide requires a bare challenge name, not a path: $target_input"
+                    die "--group with solve/guide/audit requires a bare challenge name, not a path: $target_input"
                     ;;
                 *)
                     target_input="${challenge_group}/${target_input}"
@@ -393,11 +446,12 @@ case "$mode" in
     exec)
         target_url="$target_input"
         fetch_cmd=("$0" --mode fetch "$target_url")
+        fetch_cmd+=(--runner "$runner")
         if [ -n "$challenge_group" ]; then
             fetch_cmd+=(--group "$challenge_group")
         fi
-        if [ ${#codex_args[@]} -gt 0 ]; then
-            fetch_cmd+=("--" "${codex_args[@]}")
+        if [ ${#agent_args[@]} -gt 0 ]; then
+            fetch_cmd+=("--" "${agent_args[@]}")
         fi
 
         if [ "$dry_run" = "1" ] || [ "$print_prompt" = "1" ]; then
@@ -427,15 +481,15 @@ case "$mode" in
                 else
                     dry_solve_workflow="$(infer_workflow_from_challenge "$existing_challenge_dir")"
                 fi
-                dry_solve_cmd=("$0" --mode solve --workflow "$dry_solve_workflow")
+                dry_solve_cmd=("$0" --mode solve --workflow "$dry_solve_workflow" --runner "$runner")
                 if [ ${#append_lines[@]} -gt 0 ]; then
                     for line in "${append_lines[@]}"; do
                         dry_solve_cmd+=(--append "$line")
                     done
                 fi
                 dry_solve_cmd+=("$existing_challenge_dir")
-                if [ ${#codex_args[@]} -gt 0 ]; then
-                    dry_solve_cmd+=("--" "${codex_args[@]}")
+                if [ ${#agent_args[@]} -gt 0 ]; then
+                    dry_solve_cmd+=("--" "${agent_args[@]}")
                 fi
                 printf 'solve_command:'
                 for arg in "${dry_solve_cmd[@]}"; do
@@ -444,7 +498,7 @@ case "$mode" in
                 printf '\n'
             else
                 if [ "$workflow_explicit" = "1" ]; then
-                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then %q --mode solve --workflow %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow"
+                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then %q --mode solve --workflow %q --runner %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow" "$runner"
                 else
                     printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then infer workflow from description.md/cognition.json\n' "$prompt_root"
                 fi
@@ -461,15 +515,15 @@ case "$mode" in
             solve_workflow="$(infer_workflow_from_challenge "$challenge_dir")"
         fi
 
-        solve_cmd=("$0" --mode solve --workflow "$solve_workflow")
+        solve_cmd=("$0" --mode solve --workflow "$solve_workflow" --runner "$runner")
         if [ ${#append_lines[@]} -gt 0 ]; then
             for line in "${append_lines[@]}"; do
                 solve_cmd+=(--append "$line")
             done
         fi
         solve_cmd+=("$challenge_dir")
-        if [ ${#codex_args[@]} -gt 0 ]; then
-            solve_cmd+=("--" "${codex_args[@]}")
+        if [ ${#agent_args[@]} -gt 0 ]; then
+            solve_cmd+=("--" "${agent_args[@]}")
         fi
 
         exec "${solve_cmd[@]}"
@@ -480,7 +534,7 @@ if [ "$mode" = "exec" ]; then
     exit 0
 fi
 
-if [ "$mode" = "solve" ] && [ "$display_mode" != "learn" ]; then
+if { [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; } && [ "$display_mode" != "learn" ]; then
     entry_template_path="$(resolve_template "$display_mode")"
     state_docs_template_path="$(resolve_template "state_docs")"
     capabilities_template_path="$(resolve_template "capabilities")"
@@ -514,23 +568,35 @@ if [ "$print_prompt" = "1" ] && [ "$dry_run" = "0" ]; then
     exit 0
 fi
 
-codex_bin="${CODEX_BIN:-codex}"
-command -v "$codex_bin" >/dev/null 2>&1 || die "codex not found: $codex_bin"
+case "$runner" in
+    codex)
+        agent_bin="${CODEX_BIN:-codex}"
+        command -v "$agent_bin" >/dev/null 2>&1 || die "codex not found: $agent_bin"
+        agent_cmd=(
+            "$agent_bin"
+            --dangerously-bypass-approvals-and-sandbox
+            -C "$workspace_dir"
+        )
+        ;;
+    claude)
+        agent_bin="${CLAUDE_BIN:-claude}"
+        command -v "$agent_bin" >/dev/null 2>&1 || die "claude not found: $agent_bin"
+        agent_cmd=(
+            "$agent_bin"
+            --dangerously-skip-permissions
+        )
+        ;;
+esac
 
-codex_cmd=(
-    "$codex_bin"
-    --dangerously-bypass-approvals-and-sandbox
-    -C "$workspace_dir"
-)
-
-if [ ${#codex_args[@]} -gt 0 ]; then
-    codex_cmd+=("${codex_args[@]}")
+if [ ${#agent_args[@]} -gt 0 ]; then
+    agent_cmd+=("${agent_args[@]}")
 fi
 
-codex_cmd+=("$prompt")
+agent_cmd+=("$prompt")
 
 if [ "$dry_run" = "1" ]; then
     printf 'workspace: %s\n' "$workspace_dir"
+    printf 'runner: %s\n' "$runner"
     printf 'mode: %s\n' "$display_mode"
     printf 'workflow: %s\n' "$workflow"
     if [ "$display_mode" = "guide" ]; then
@@ -538,7 +604,7 @@ if [ "$dry_run" = "1" ]; then
     else
         printf 'guided: 0\n'
     fi
-    if [ "$mode" = "solve" ]; then
+    if [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; then
         printf 'challenge: %s\n' "$challenge_prompt_path"
         if [ -n "$challenge_group" ]; then
             printf 'group: %s\n' "$challenge_group"
@@ -554,11 +620,15 @@ if [ "$dry_run" = "1" ]; then
         fi
     fi
     printf 'command:'
-    for arg in "${codex_cmd[@]}"; do
+    for arg in "${agent_cmd[@]}"; do
         printf ' %q' "$arg"
     done
     printf '\n\nprompt:\n%s\n' "$prompt"
     exit 0
 fi
 
-exec "${codex_cmd[@]}"
+if [ "$runner" = "claude" ]; then
+    cd "$workspace_dir"
+fi
+
+exec "${agent_cmd[@]}"

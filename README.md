@@ -1,15 +1,15 @@
 # Amadeus
 
-一个封装 Codex 的轻量级 CTF agent, 主要负责把题目目录、状态文档、checkpoint、执行入口和前端管理面板统一起来，让 agent 解题时有稳定的上下文和可回滚的工作流。
+一个封装 Codex / Claude 的轻量级 CTF agent, 主要负责把题目目录、状态文档、checkpoint、执行入口和前端管理面板统一起来，让 agent 解题时有稳定的上下文和可回滚的工作流。
 
-当前重点支持 pwn，同时已经预留并接入了 web、crypto、reverse、misc、x402 的 workflow prompt。
+当前重点支持 pwn，同时已经预留并接入了 web、crypto、reverse、misc 的解题 workflow prompt，以及 x402 审计 workflow prompt。
 
 ## 整体结构
 
 ```text
 Amadeus/
 ├── bin/                 # 命令行入口和工作流脚本
-├── prompts/             # amds 注入给 Codex 的 workflow prompt
+├── prompts/             # amds 注入给 agent 的 workflow prompt
 ├── templates/           # 初始化题目时复制的状态模板
 ├── script/              # 平台题目抓取辅助脚本
 ├── webui/               # Challenge Console 前端和 Python API 服务
@@ -18,7 +18,7 @@ Amadeus/
 
 核心文件：
 
-- `bin/amds`：Codex 启动器，负责 fetch / solve / exec / learn 和 workflow prompt 渲染。
+- `bin/amds`：agent 启动器，负责 fetch / solve / audit / exec / learn、runner 选择和 workflow prompt 渲染。
 - `bin/init_challenge.sh`：初始化题目目录，创建 `cognition.json`、生成的 `COGNITION.md`、`evidence/`、`.pwnrun`，并在题目目录内创建 git 初始 checkpoint。
 - `bin/state_docs.py`：初始化、校验和渲染 `cognition.json`；`COGNITION.md` 只能由它生成。
 - `bin/capabilities.py`：校验和渲染 `cognition.json.capabilities`；`COGNITION.md` 只能由它生成。
@@ -55,6 +55,14 @@ bin/amds pwn defcon/baby_tcache
 bin/amds guide pwn baby_tcache
 ```
 
+启动 x402 审计/挖洞工作流：
+
+```bash
+bin/amds audit audit_target
+bin/amds audit x402 audit_target
+bin/amds --mode audit --workflow x402 audit_target
+```
+
 抓题但不解题：
 
 ```bash
@@ -89,13 +97,24 @@ bin/run_pwn.sh challenges/baby_tcache info
 
 ## amds 工作流
 
-`bin/amds` 是对 `codex` 的薄封装，会在 Amadeus 根目录启动 Codex，并把题目路径、workflow prompt 和附加说明一起传入。
+`bin/amds` 是对 `codex` / `claude` 的薄封装，会在 Amadeus 根目录启动所选 agent，并把题目路径、workflow prompt 和附加说明一起传入。默认 runner 是 `codex`；需要 Claude 时用 `--runner claude` 或 `--claude`。
 
 基本格式：
 
 ```bash
-bin/amds [--mode solve|guide|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] <challenge|path|url> [-- codex_args...]
+bin/amds [--runner codex|claude] [--mode solve|guide|audit|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
 ```
+
+Runner 示例：
+
+```bash
+bin/amds --claude audit audit_target
+bin/amds --runner claude audit x402 audit_target
+AMDS_RUNNER=claude bin/amds audit audit_target
+bin/amds --claude audit audit_target -- --model sonnet
+```
+
+`--` 后面的参数原样传给当前 runner。可用 `CODEX_BIN` 或 `CLAUDE_BIN` 指定二进制路径。
 
 ### solve
 
@@ -105,10 +124,20 @@ bin/amds [--mode solve|guide|fetch|exec|learn] [--workflow pwn|web|crypto|revers
 bin/amds --mode solve --workflow pwn newnote
 bin/amds --workflow pwn newnote
 bin/amds --workflow pwn defcon/newnote
-bin/amds --workflow x402 audit_target
 bin/amds --group defcon --workflow pwn newnote
 bin/amds pwn newnote
 bin/amds newnote
+```
+
+### audit
+
+`audit` 是审计/挖洞动作，不走 `solve` 入口。它解析 `challenges/<name>`、`challenges/<group>/<name>` 或 challenge 路径，先加载 `prompts/cmds/audit.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `x402`。
+
+```bash
+bin/amds audit audit_target
+bin/amds audit x402 audit_target
+bin/amds --mode audit --workflow x402 audit_target
+bin/amds --group audits audit x402_target
 ```
 
 ### guide
