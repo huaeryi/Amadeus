@@ -118,6 +118,8 @@ bin/amds --claude audit audit_target -- --model sonnet
 
 `--` 后面的参数原样传给当前 runner。可用 `CODEX_BIN` 或 `CLAUDE_BIN` 指定二进制路径。
 
+平台兼容：`bin/amds` 支持 macOS 默认 `/bin/bash 3.2` 和 Linux bash，不依赖 GNU `realpath -m` 或 bash 4 `mapfile`。
+
 ### solve
 
 `solve` 解析 `challenges/<name>`、`challenges/<group>/<name>` 或从 `challenges/` 起算的路径，先加载 `prompts/cmds/solve.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `pwn`。

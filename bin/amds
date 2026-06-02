@@ -60,12 +60,21 @@ behavior:
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
   - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse, --x402
   - launches Codex by default, or Claude when --runner claude is set
+  - compatible with macOS /bin/bash 3.2 and Linux bash; no GNU realpath/mapfile required
 EOF
 }
 
 die() {
     echo "amds: $*" >&2
     exit 1
+}
+
+detect_platform() {
+    case "$(uname -s 2>/dev/null || printf 'unknown')" in
+        Darwin) printf '%s\n' macos ;;
+        Linux) printf '%s\n' linux ;;
+        *) printf '%s\n' unknown ;;
+    esac
 }
 
 normalize_path() {
@@ -95,7 +104,7 @@ normalize_path() {
                 ;;
             ..)
                 if [ ${#parts[@]} -gt 0 ]; then
-                    unset 'parts[${#parts[@]}-1]'
+                    unset "parts[$((${#parts[@]} - 1))]"
                 elif [ "$prefix" != "/" ]; then
                     prefix="$(dirname "$prefix")"
                 fi
@@ -114,6 +123,18 @@ normalize_path() {
     else
         printf '%s\n' "$prefix"
     fi
+}
+
+join_prompt() {
+    if [ -z "${prompt:-}" ]; then
+        prompt="$1"
+    else
+        prompt="${prompt}"$'\n\n'"$1"
+    fi
+}
+
+append_prompt_line() {
+    prompt="${prompt}"$'\n'"$1"
 }
 
 resolve_challenge() {
@@ -268,6 +289,7 @@ root_dir="$(cd "${script_dir}/.." && pwd)"
 workspace_parent="$(cd "${root_dir}/.." && pwd)"
 root_name="$(basename "${root_dir}")"
 workspace_dir="$root_dir"
+platform="$(detect_platform)"
 prompt_root="."
 prompt_dir="${root_dir}/prompts"
 prompt_cmd_dir="${prompt_dir}/cmds"
@@ -588,29 +610,21 @@ if { [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; } && [ "$display_mode" != "
     state_docs_template_path="$(resolve_template "state_docs")"
     capabilities_template_path="$(resolve_template "capabilities")"
     checkpoint_template_path="$(resolve_template "checkpoint")"
-    mapfile -t prompt_lines < <(render_template "$entry_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
-    mapfile -t workflow_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
-    mapfile -t state_docs_lines < <(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
-    mapfile -t capabilities_lines < <(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
-    mapfile -t checkpoint_lines < <(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
-    prompt_lines+=("")
-    prompt_lines+=("${workflow_lines[@]}")
-    prompt_lines+=("")
-    prompt_lines+=("${state_docs_lines[@]}")
-    prompt_lines+=("")
-    prompt_lines+=("${capabilities_lines[@]}")
-    prompt_lines+=("")
-    prompt_lines+=("${checkpoint_lines[@]}")
+    prompt=""
+    join_prompt "$(render_template "$entry_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    join_prompt "$(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    join_prompt "$(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    join_prompt "$(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 else
-    mapfile -t prompt_lines < <(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")
+    prompt="$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 fi
 
 if [ ${#append_lines[@]} -gt 0 ]; then
-    prompt_lines+=("${append_lines[@]}")
+    for line in "${append_lines[@]}"; do
+        append_prompt_line "$line"
+    done
 fi
-
-printf -v prompt '%s\n' "${prompt_lines[@]}"
-prompt="${prompt%$'\n'}"
 
 if [ "$print_prompt" = "1" ] && [ "$dry_run" = "0" ]; then
     printf '%s\n' "$prompt"
@@ -645,6 +659,7 @@ agent_cmd+=("$prompt")
 
 if [ "$dry_run" = "1" ]; then
     printf 'workspace: %s\n' "$workspace_dir"
+    printf 'platform: %s\n' "$platform"
     printf 'runner: %s\n' "$runner"
     printf 'mode: %s\n' "$display_mode"
     printf 'workflow: %s\n' "$workflow"
