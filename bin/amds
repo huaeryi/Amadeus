@@ -68,6 +68,54 @@ die() {
     exit 1
 }
 
+normalize_path() {
+    local path="$1"
+    local prefix=""
+    local rest=""
+    local part=""
+    local old_ifs=""
+    local -a parts=()
+
+    case "$path" in
+        /*)
+            prefix="/"
+            rest="${path#/}"
+            ;;
+        *)
+            prefix="$(pwd -P)"
+            rest="$path"
+            ;;
+    esac
+
+    old_ifs="$IFS"
+    IFS='/'
+    for part in $rest; do
+        case "$part" in
+            ""|.)
+                ;;
+            ..)
+                if [ ${#parts[@]} -gt 0 ]; then
+                    unset 'parts[${#parts[@]}-1]'
+                elif [ "$prefix" != "/" ]; then
+                    prefix="$(dirname "$prefix")"
+                fi
+                ;;
+            *)
+                parts+=("$part")
+                ;;
+        esac
+    done
+    IFS="$old_ifs"
+
+    if [ "$prefix" = "/" ]; then
+        printf '/%s\n' "$(IFS=/; printf '%s' "${parts[*]}")"
+    elif [ ${#parts[@]} -gt 0 ]; then
+        printf '%s/%s\n' "$prefix" "$(IFS=/; printf '%s' "${parts[*]}")"
+    else
+        printf '%s\n' "$prefix"
+    fi
+}
+
 resolve_challenge() {
     local input="$1"
     local candidate=""
@@ -87,7 +135,7 @@ resolve_challenge() {
             ;;
     esac
 
-    candidate="$(realpath -m "$candidate" 2>/dev/null || true)"
+    candidate="$(normalize_path "$candidate")"
     [ -n "$candidate" ] || die "challenge directory not found: $input"
 
     if [[ "$candidate" != "${root_dir}/challenges/"* ]]; then
