@@ -46,7 +46,8 @@ examples:
   amds newnote
 
 behavior:
-  - solve mode resolves the challenge under ./challenges/, including grouped paths like defcon/newnote
+  - solve/guide/audit/learn targets are always resolved under ./challenges/
+  - target x402_research/x402 means ./challenges/x402_research/x402
   - solve mode reads prompts/cmds/solve.md, then the --workflow prompt under prompts/skills/
   - guide mode reads prompts/cmds/guide.md, then the --workflow prompt under prompts/skills/
   - audit mode reads prompts/cmds/audit.md, then the --workflow prompt under prompts/skills/

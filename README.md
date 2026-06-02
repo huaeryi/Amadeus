@@ -99,6 +99,8 @@ bin/run_pwn.sh challenges/baby_tcache info
 
 `bin/amds` 是对 `codex` / `claude` 的薄封装，会在 Amadeus 根目录启动所选 agent，并把题目路径、workflow prompt 和附加说明一起传入。默认 runner 是 `codex`；需要 Claude 时用 `--runner claude` 或 `--claude`。
 
+所有非 URL 目标都从 `challenges/` 起算：`x402_research/x402` 表示 `challenges/x402_research/x402`。如果项目 clone 在别处，先移动或 symlink 到 `challenges/` 下。
+
 基本格式：
 
 ```bash
@@ -118,7 +120,7 @@ bin/amds --claude audit audit_target -- --model sonnet
 
 ### solve
 
-`solve` 解析 `challenges/<name>`、`challenges/<group>/<name>` 或 challenge 路径，先加载 `prompts/cmds/solve.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `pwn`。
+`solve` 解析 `challenges/<name>`、`challenges/<group>/<name>` 或从 `challenges/` 起算的路径，先加载 `prompts/cmds/solve.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `pwn`。
 
 ```bash
 bin/amds --mode solve --workflow pwn newnote
@@ -131,11 +133,12 @@ bin/amds newnote
 
 ### audit
 
-`audit` 是审计/挖洞动作，不走 `solve` 入口。它解析 `challenges/<name>`、`challenges/<group>/<name>` 或 challenge 路径，先加载 `prompts/cmds/audit.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `x402`。
+`audit` 是审计/挖洞动作，不走 `solve` 入口。它解析 `challenges/<name>`、`challenges/<group>/<name>` 或从 `challenges/` 起算的路径，先加载 `prompts/cmds/audit.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `x402`。
 
 ```bash
 bin/amds audit audit_target
 bin/amds audit x402 audit_target
+bin/amds audit --workflow x402 x402_research/x402 --claude
 bin/amds --mode audit --workflow x402 audit_target
 bin/amds --group audits audit x402_target
 ```
