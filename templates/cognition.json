@@ -15,17 +15,17 @@
     "annex": null,
     "downloaded_at": "",
     "description": "",
-    "evidence_dir": "evidence",
+    "evidence_dir": "amds_state/evidence",
     "local_files": [],
       "tracked_files": [
-        "evidence/",
+        "amds_state/evidence/",
         "exp.py",
-        "exp_example.py",
+        "amds_state/exp_example.py",
         "exp_template.py",
         "wp.md",
-      "cognition.json",
-      "COGNITION.md",
-      ".pwnrun"
+      "amds_state/cognition.json",
+      "amds_state/COGNITION.md",
+      "amds_state/.pwnrun"
     ]
   },
   "facts": {

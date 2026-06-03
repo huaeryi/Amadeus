@@ -4,8 +4,8 @@
 
 先读：
 - `{{root_name}}/AGENTS.md`
-- `{{challenge_path}}/cognition.json`
-- `{{challenge_path}}/COGNITION.md`，仅作为 JSON 渲染视图辅助阅读
+- `{{challenge_path}}/amds_state/cognition.json`
+- `{{challenge_path}}/amds_state/COGNITION.md`，仅作为 JSON 渲染视图辅助阅读
 - `{{challenge_path}}/wp.md`，如果存在
 - `{{challenge_path}}/exp.py` 或 `solve.py`，如果存在
 - `{{challenge_path}}/REFLECTION.md`，如果存在
@@ -23,7 +23,7 @@ Session 输入：
 - 如果指定 session 但目录不存在或没有 transcript，继续从 challenge 文件学习，并在 `REFLECTION.md` 和 `LEARNING_LOG.md` 的 `skipped` 中记录 session 不可用。
 - 不要把 session 中的完整对话复制进长期学习文件，只提炼最简单有效的过程规则。
 
-根据 `cognition.json.metadata`、`description.md`、`cognition.json.facts` 或 `cognition.json.state` 判断题型，然后只修改对应文件：
+根据 `amds_state/cognition.json.metadata`、`description.md`、`amds_state/cognition.json.facts` 或 `amds_state/cognition.json.state` 判断题型，然后只修改对应文件：
 - pwn: `{{root_name}}/prompts/learn/pwn_learning.md`
 - web: `{{root_name}}/prompts/learn/web_learning.md`
 - crypto: `{{root_name}}/prompts/learn/crypto_learning.md`

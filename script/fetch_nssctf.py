@@ -202,7 +202,7 @@ def update_cognition(
     data["metadata"] = metadata
     data["facts"] = state_docs.facts_from_markdown_text(facts_text, challenge_dir.name)
     data["state"] = state_docs.state_from_markdown_text(state_text, challenge_dir.name)
-    state_docs.write_json(challenge_dir / "cognition.json", data)
+    state_docs.write_json(state_docs.cognition_path(challenge_dir), data)
     state_docs.render_docs(challenge_dir)
 
 
@@ -242,7 +242,9 @@ def choose_main_binary(challenge_dir: Path) -> Path | None:
 def update_pwnrun(challenge_dir: Path, main_binary: Path | None) -> None:
     if not main_binary:
         return
-    pwnrun = challenge_dir / ".pwnrun"
+    pwnrun = challenge_dir / "amds_state" / ".pwnrun"
+    if not pwnrun.exists() and (challenge_dir / ".pwnrun").exists():
+        pwnrun = challenge_dir / ".pwnrun"
     if not pwnrun.exists():
         return
     lines = pwnrun.read_text(encoding="utf-8").splitlines()
@@ -379,17 +381,17 @@ def challenge_metadata(problem_id: str, problem: dict[str, Any], source_url: str
         "annex": problem.get("annex"),
         "downloaded_at": time.strftime("%Y-%m-%d %H:%M:%S %z"),
         "description": str(problem.get("desc") or problem.get("description") or "").strip(),
-        "evidence_dir": "evidence",
+        "evidence_dir": "amds_state/evidence",
         "local_files": [path.name for path in files],
         "tracked_files": [
-            "evidence/",
+            "amds_state/evidence/",
             "description.md",
             "exp.py",
             "exp_template.py",
             "wp.md",
-            "cognition.json",
-            "COGNITION.md",
-            ".pwnrun",
+            "amds_state/cognition.json",
+            "amds_state/COGNITION.md",
+            "amds_state/.pwnrun",
         ],
     }
 
@@ -470,7 +472,7 @@ def state_markdown(problem: dict[str, Any], main_binary: Path | None, attachment
             "# Target Profile",
             "",
             f"- challenge type: {category_name(problem)}",
-            "- protections: see cognition.json.facts",
+            "- protections: see amds_state/cognition.json.facts",
             f"- likely bug class: {tags}" if tags else "- likely bug class:",
             "",
             "# Current Primitive",
@@ -530,7 +532,7 @@ def main() -> int:
 
     title = safe_title(str(problem.get("title") or f"nssctf_{problem_id}"))
     challenge_dir = CHALLENGES_DIR / safe_group_path(args.group) / title
-    fresh_cognition = not (challenge_dir / "cognition.json").exists()
+    fresh_cognition = not state_docs.cognition_path(challenge_dir).exists()
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
 

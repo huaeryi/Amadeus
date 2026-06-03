@@ -348,7 +348,7 @@ def update_cognition(
     data["metadata"] = metadata
     data["facts"] = state_docs.facts_from_markdown_text(facts_text, challenge_dir.name)
     data["state"] = state_docs.state_from_markdown_text(state_text, challenge_dir.name)
-    state_docs.write_json(challenge_dir / "cognition.json", data)
+    state_docs.write_json(state_docs.cognition_path(challenge_dir), data)
     state_docs.render_docs(challenge_dir)
 
 
@@ -385,10 +385,10 @@ def challenge_artifact_paths(challenge_dir: Path) -> list[Path]:
         if rel.parts and rel.parts[0] in ignored_dirs:
             continue
         if path.name in {
-            "COGNITION.md",
-            "cognition.json",
+            "amds_state/COGNITION.md",
+            "amds_state/cognition.json",
             "description.md",
-            ".pwnrun",
+            "amds_state/.pwnrun",
         }:
             continue
         paths.append(path)
@@ -410,7 +410,9 @@ def sh_quote(value: str) -> str:
 def update_pwnrun(challenge_dir: Path, main_binary: Path | None) -> None:
     if not main_binary:
         return
-    pwnrun = challenge_dir / ".pwnrun"
+    pwnrun = challenge_dir / "amds_state" / ".pwnrun"
+    if not pwnrun.exists() and (challenge_dir / ".pwnrun").exists():
+        pwnrun = challenge_dir / ".pwnrun"
     if not pwnrun.exists():
         return
     main_rel = str(main_binary.relative_to(challenge_dir))
@@ -580,17 +582,17 @@ def challenge_metadata(
         "annex": file_entries(problem),
         "downloaded_at": time.strftime("%Y-%m-%d %H:%M:%S %z"),
         "description": description_text(problem),
-        "evidence_dir": "evidence",
+        "evidence_dir": "amds_state/evidence",
         "local_files": [rel_name(challenge_dir, path) for path in files],
         "tracked_files": [
-            "evidence/",
+            "amds_state/evidence/",
             "description.md",
             "exp.py",
             "exp_template.py",
             "wp.md",
-            "cognition.json",
-            "COGNITION.md",
-            ".pwnrun",
+            "amds_state/cognition.json",
+            "amds_state/COGNITION.md",
+            "amds_state/.pwnrun",
         ],
         "fetch_status": fetch_status,
     }
@@ -676,7 +678,7 @@ def state_markdown(problem: dict[str, Any], main_binary: Path | None, attachment
             "# Target Profile",
             "",
             f"- challenge type: {category_name(problem)}",
-            "- protections: see cognition.json.facts",
+            "- protections: see amds_state/cognition.json.facts",
             f"- likely bug class: {tags}" if tags else "- likely bug class:",
             "",
             "# Current Primitive",
@@ -739,7 +741,7 @@ def write_outputs(
 def write_partial_failure(title_hint: str, source_url: str, error: str, overwrite: bool, group: str) -> Path:
     title = safe_title(title_hint or "buuctf_fetch_failed")
     challenge_dir = CHALLENGES_DIR / safe_group_path(group) / title
-    fresh_cognition = not (challenge_dir / "cognition.json").exists()
+    fresh_cognition = not state_docs.cognition_path(challenge_dir).exists()
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
     problem = {
@@ -792,7 +794,7 @@ def main() -> int:
 
     title = safe_title(str(problem.get("name") or problem.get("title") or title_hint or f"buuctf_{challenge_id}"))
     challenge_dir = CHALLENGES_DIR / safe_group_path(args.group) / title
-    fresh_cognition = not (challenge_dir / "cognition.json").exists()
+    fresh_cognition = not state_docs.cognition_path(challenge_dir).exists()
     challenge_dir.mkdir(parents=True, exist_ok=True)
     run_init(challenge_dir)
 

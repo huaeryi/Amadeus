@@ -18,7 +18,7 @@ Amadeus/
 
 核心文件：
 
-- `bin/amds`：agent 启动器，负责 fetch / solve / audit / exec / learn、runner 选择和 workflow prompt 渲染。
+- `bin/amds`：agent 启动器，负责 fetch / pre / solve / audit / exec / learn、runner 选择和 workflow prompt 渲染。
 - `bin/init_challenge.sh`：初始化题目目录，创建 `cognition.json`、生成的 `COGNITION.md`、`evidence/`、`.pwnrun`，并在题目目录内创建 git 初始 checkpoint。
 - `bin/state_docs.py`：初始化、校验和渲染 `cognition.json`；`COGNITION.md` 只能由它生成。
 - `bin/capabilities.py`：校验和渲染 `cognition.json.capabilities`；`COGNITION.md` 只能由它生成。
@@ -47,6 +47,13 @@ bin/init_challenge.sh challenges/defcon/baby_tcache
 ```bash
 bin/amds --workflow pwn baby_tcache
 bin/amds pwn defcon/baby_tcache
+```
+
+只做题目前处理和环境整理：
+
+```bash
+bin/amds pre pwn baby_tcache
+bin/amds --mode pre --workflow pwn baby_tcache
 ```
 
 启动带提问和复盘的主动学习工作流：
@@ -104,7 +111,7 @@ bin/run_pwn.sh challenges/baby_tcache info
 基本格式：
 
 ```bash
-bin/amds [--runner codex|claude] [--mode solve|guide|audit|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
+bin/amds [--runner codex|claude] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
 ```
 
 Runner 示例：
@@ -180,6 +187,19 @@ bin/amds guide pwn newnote
 ```
 
 `guide` 使用 `prompts/cmds/guide.md` 作为入口：agent 在关键分叉前会先让你判断，要求解释命令输出如何改变结论，并在 `cognition.json.state` 维护 `your_turn` 问题，渲染到 `COGNITION.md`，在 `wp.md` 维护 `Learning checkpoints`。比赛冲刺时用 `solve`，训练和复盘时用 `guide`。
+
+### pre
+
+`pre` 只做题目前处理：初始化状态、识别附件、补运行配置、尽量 patch pwn 环境、记录基础信息，并给少量初步思路；不会进入完整 exploit/solve。
+
+```bash
+bin/amds pre pwn baby_tcache
+bin/amds pre --workflow pwn baby_tcache
+bin/amds --mode pre --workflow pwn baby_tcache
+bin/amds --mode pre --workflow web web_chal
+```
+
+对 pwn 题，`pre` 会优先维护 `amds_state/.pwnrun`，并让 `bin/run_pwn.sh <challenge_dir> info` 能展示主 binary、patched binary、libc、ld、远程地址等基础解析结果。
 
 ### fetch
 

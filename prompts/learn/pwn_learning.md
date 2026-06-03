@@ -4,7 +4,7 @@
 
 ## Fast Rules
 
-- Env first: 先确认 binary/libc/ld/patched/remote 参数；`.pwnrun` 不准就先修。
+- Env first: 先确认 binary/libc/ld/patched/remote 参数；`amds_state/.pwnrun` 不准就先修。
 - Primitive first: crash/leak/write/UAF/fmt offset 都先用最小 PoC 验证，再写完整 exploit。
 - Libc first: 依赖 libc offset 时，先确认 libc 来源；缺 libc 就泄露至少两个符号再定版本。
 - Heap first: heap 路线先画操作状态机和 chunk layout；metadata corruption 前 checkpoint。

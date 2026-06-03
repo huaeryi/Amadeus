@@ -3,13 +3,15 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--group NAME] [--append TEXT] [--mode solve|guide|audit|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
+usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--group NAME] [--append TEXT] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
   amds --runner claude --mode solve --workflow pwn newnote
   amds --claude audit audit_target
   amds --mode guide --workflow pwn newnote
+  amds --mode pre --workflow pwn newnote
+  amds pre pwn newnote
   amds --mode audit --workflow x402 audit_target
   amds --runner claude audit audit_target
   amds --mode fetch https://www.nssctf.cn/problem/131
@@ -46,10 +48,11 @@ examples:
   amds newnote
 
 behavior:
-  - solve/guide/audit/learn targets are always resolved under ./challenges/
+  - solve/guide/pre/audit/learn targets are always resolved under ./challenges/
   - target x402_research/x402 means ./challenges/x402_research/x402
   - solve mode reads prompts/cmds/solve.md, then the --workflow prompt under prompts/skills/
   - guide mode reads prompts/cmds/guide.md, then the --workflow prompt under prompts/skills/
+  - pre mode reads prompts/cmds/pre.md and stops after environment setup, basic facts, and initial ideas
   - audit mode reads prompts/cmds/audit.md, then the --workflow prompt under prompts/skills/
   - grouped challenges can live under ./challenges/<group>/<challenge>
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
@@ -254,10 +257,17 @@ find_fetched_challenge() {
     while IFS= read -r file; do
         if grep -Fq "Source: ${source_url}" "$file" 2>/dev/null || \
            grep -Fq "source: ${source_url}" "$file" 2>/dev/null; then
-            dirname "$file"
+            case "$file" in
+                */amds_state/cognition.json)
+                    dirname "$(dirname "$file")"
+                    ;;
+                *)
+                    dirname "$file"
+                    ;;
+            esac
             return 0
         fi
-    done < <(find "${root_dir}/challenges" -mindepth 2 -type f \( -name description.md -o -name cognition.json \) | sort)
+    done < <(find "${root_dir}/challenges" -mindepth 2 -type f \( -name description.md -o -path '*/amds_state/cognition.json' -o -name cognition.json \) | sort)
 
     return 1
 }
@@ -269,8 +279,12 @@ infer_workflow_from_challenge() {
     if [ -f "${challenge_dir}/description.md" ]; then
         category="$(sed -n 's/^- Category:[[:space:]]*//p' "${challenge_dir}/description.md" | head -n 1)"
     fi
-    if [ -z "$category" ] && [ -f "${challenge_dir}/cognition.json" ]; then
-        category="$(python3 -c 'import json,sys; root=json.load(open(sys.argv[1])); meta=root.get("metadata",{}); facts=root.get("facts",{}); print(meta.get("challenge_type") or next((str(item).split(":",1)[1].strip() for section in facts.get("sections",[]) for item in section.get("items",[]) if str(item).lower().startswith("category:")), ""))' "${challenge_dir}/cognition.json" 2>/dev/null || true)"
+    local cognition_file="${challenge_dir}/amds_state/cognition.json"
+    if [ ! -f "$cognition_file" ] && [ -f "${challenge_dir}/cognition.json" ]; then
+        cognition_file="${challenge_dir}/cognition.json"
+    fi
+    if [ -z "$category" ] && [ -f "$cognition_file" ]; then
+        category="$(python3 -c 'import json,sys; root=json.load(open(sys.argv[1])); meta=root.get("metadata",{}); facts=root.get("facts",{}); print(meta.get("challenge_type") or next((str(item).split(":",1)[1].strip() for section in facts.get("sections",[]) for item in section.get("items",[]) if str(item).lower().startswith("category:")), ""))' "$cognition_file" 2>/dev/null || true)"
     fi
 
     case "$(printf '%s' "${category:-}" | tr '[:upper:]' '[:lower:]')" in
@@ -355,11 +369,15 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --mode|-m)
-            [ $# -ge 2 ] || die "--mode requires solve, guide, audit, fetch, exec, or learn"
+            [ $# -ge 2 ] || die "--mode requires solve, guide, pre, audit, fetch, exec, or learn"
             case "$2" in
                 solve|fetch|exec)
                     mode="$2"
                     display_mode="$2"
+                    ;;
+                pre)
+                    mode="pre"
+                    display_mode="pre"
                     ;;
                 audit)
                     mode="audit"
@@ -416,6 +434,12 @@ while [ $# -gt 0 ]; do
                         shift
                         continue
                         ;;
+                    pre)
+                        mode="pre"
+                        display_mode="pre"
+                        shift
+                        continue
+                        ;;
                     audit)
                         mode="audit"
                         display_mode="audit"
@@ -440,7 +464,7 @@ while [ $# -gt 0 ]; do
                 esac
             fi
 
-            if [ "$mode" = "solve" ] && [ -z "$target_input" ] && [ "$workflow_explicit" = "0" ] && [ "$workflow" = "pwn" ] && template_exists "$1"; then
+            if { [ "$mode" = "solve" ] || [ "$mode" = "pre" ]; } && [ -z "$target_input" ] && [ "$workflow_explicit" = "0" ] && [ "$workflow" = "pwn" ] && template_exists "$1"; then
                 workflow="$1"
                 shift
                 continue
@@ -481,11 +505,11 @@ session_prompt_value=""
 session_prompt_path=""
 
 case "$mode" in
-    solve|audit)
+    solve|audit|pre)
         if [ -n "$challenge_group" ]; then
             case "$target_input" in
                 /*|challenges/*|"${root_name}/challenges/"*|*/*)
-                    die "--group with solve/guide/audit requires a bare challenge name, not a path: $target_input"
+                    die "--group with solve/guide/pre/audit requires a bare challenge name, not a path: $target_input"
                     ;;
                 *)
                     target_input="${challenge_group}/${target_input}"
@@ -495,7 +519,11 @@ case "$mode" in
         challenge_dir="$(resolve_challenge "$target_input")"
         challenge_rel="${challenge_dir#${root_dir}/}"
         challenge_prompt_path="${challenge_rel}"
-        template_path="$(resolve_template "$workflow")"
+        if [ "$mode" = "pre" ]; then
+            template_path="$(resolve_template "pre")"
+        else
+            template_path="$(resolve_template "$workflow")"
+        fi
         if [ -n "$session_input" ]; then
             if [ "$display_mode" != "learn" ]; then
                 die "--session is only supported with learn mode"
@@ -506,7 +534,7 @@ case "$mode" in
                     ;;
             esac
             session_prompt_value="$session_input"
-            session_prompt_path="${challenge_prompt_path}/.amadeus/sessions/${session_input}"
+            session_prompt_path="${challenge_prompt_path}/amds_state/sessions/${session_input}"
         fi
         ;;
     fetch)
@@ -571,7 +599,7 @@ case "$mode" in
                 if [ "$workflow_explicit" = "1" ]; then
                     printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then %q --mode solve --workflow %q --runner %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow" "$runner"
                 else
-                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then infer workflow from description.md/cognition.json\n' "$prompt_root"
+                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then infer workflow from description.md/amds_state/cognition.json\n' "$prompt_root"
                 fi
             fi
             exit 0
@@ -605,7 +633,16 @@ if [ "$mode" = "exec" ]; then
     exit 0
 fi
 
-if { [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; } && [ "$display_mode" != "learn" ]; then
+if [ "$mode" = "pre" ]; then
+    state_docs_template_path="$(resolve_template "state_docs")"
+    capabilities_template_path="$(resolve_template "capabilities")"
+    checkpoint_template_path="$(resolve_template "checkpoint")"
+    prompt=""
+    join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    join_prompt "$(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    join_prompt "$(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    join_prompt "$(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+elif { [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; } && [ "$display_mode" != "learn" ]; then
     entry_template_path="$(resolve_template "$display_mode")"
     state_docs_template_path="$(resolve_template "state_docs")"
     capabilities_template_path="$(resolve_template "capabilities")"
@@ -668,7 +705,7 @@ if [ "$dry_run" = "1" ]; then
     else
         printf 'guided: 0\n'
     fi
-    if [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; then
+    if [ "$mode" = "solve" ] || [ "$mode" = "audit" ] || [ "$mode" = "pre" ]; then
         printf 'challenge: %s\n' "$challenge_prompt_path"
         if [ -n "$challenge_group" ]; then
             printf 'group: %s\n' "$challenge_group"

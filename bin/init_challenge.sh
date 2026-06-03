@@ -9,9 +9,10 @@ fi
 target_dir="${1:-.}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "${script_dir}/.." && pwd)"
+state_dir="${target_dir}/amds_state"
 
 mkdir -p "${target_dir}"
-mkdir -p "${target_dir}/evidence"
+mkdir -p "${state_dir}/evidence"
 
 git_commit_if_needed() {
     local commit_name="$1"
@@ -45,7 +46,7 @@ git_commit_if_needed() {
 
 for name in .pwnrun cognition.json exp_example.py; do
     src="${root_dir}/templates/${name}"
-    dst="${target_dir}/${name}"
+    dst="${state_dir}/${name}"
     if [ ! -e "${dst}" ]; then
         cp "${src}" "${dst}"
         echo "created ${dst}"
@@ -53,8 +54,8 @@ for name in .pwnrun cognition.json exp_example.py; do
 done
 
 python3 "${root_dir}/bin/state_docs.py" init "${target_dir}" >/dev/null
-echo "initialized ${target_dir}/cognition.json"
-echo "rendered ${target_dir}/COGNITION.md"
+echo "initialized ${state_dir}/cognition.json"
+echo "rendered ${state_dir}/COGNITION.md"
 
 if [ -f "${target_dir}/exp_template.py" ] && [ ! -e "${target_dir}/exp.py" ]; then
     cp "${target_dir}/exp_template.py" "${target_dir}/exp.py"
