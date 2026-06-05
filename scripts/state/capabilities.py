@@ -11,7 +11,7 @@ from typing import Any
 import state_docs
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 COGNITION_TEMPLATE = ROOT / "templates" / "cognition.json"
 ALLOWED_STATUS = {"hypothesis", "observed", "verified", "blocked", "target"}
 ALLOWED_ENV = {"local", "native", "docker", "patched", "remote"}

@@ -29,10 +29,10 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CHALLENGES_DIR = ROOT / "challenges"
-INIT_SCRIPT = ROOT / "bin" / "init_challenge.sh"
-sys.path.insert(0, str(ROOT / "bin"))
+INIT_SCRIPT = ROOT / "scripts" / "challenge" / "init_challenge.sh"
+sys.path.insert(0, str(ROOT / "scripts" / "state"))
 import state_docs  # noqa: E402
 
 DEFAULT_HEADERS = {

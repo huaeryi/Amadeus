@@ -8,7 +8,7 @@ fi
 
 target_dir="${1:-.}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root_dir="$(cd "${script_dir}/.." && pwd)"
+root_dir="$(cd "${script_dir}/../.." && pwd)"
 state_dir="${target_dir}/amds_state"
 
 mkdir -p "${target_dir}"
@@ -53,7 +53,7 @@ for name in run.env cognition.json exp_example.py; do
     fi
 done
 
-python3 "${root_dir}/bin/state_docs.py" init "${target_dir}" >/dev/null
+python3 "${root_dir}/scripts/state/state_docs.py" init "${target_dir}" >/dev/null
 echo "initialized ${state_dir}/cognition.json"
 echo "rendered ${state_dir}/COGNITION.md"
 

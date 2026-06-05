@@ -14,7 +14,7 @@
 1. 先读取题目目录中的附件，并确认主程序、patched binary、libc、ld、`exp_template.py`
 2. `amds_state/cognition.json.state` 记录当前阶段、下一步、checkpoint 计划、失败路线和开放问题
 3. 如果存在 `exp_template.py`，基于它生成 `exp.py`
-4. 优先使用 `{{root_name}}/bin/run_pwn.sh {{challenge_path}} [local|remote|patched]` 统一执行本地、远程和 patched 运行
+4. 优先使用 `{{root_name}}/scripts/pwn/run_pwn.sh {{challenge_path}} [local|remote|patched]` 统一执行本地、远程和 patched 运行
 5. 如果使用 `run_pwn.sh`，保持 `amds_state/run.env` 中的 `BIN`、`PATCHED_BIN`、`LIBC`、`LD`、`HOST`、`PORT` 准确
 6. 新写或更新 `exp.py` 时，优先读取 `run_pwn.sh` 导出的 `PWN_*` 环境变量，让 local、remote、patched 共享同一套入口
 7. 用本地命令、`checksec`、`file`、`ldd`、`pwndbg`、`gdb`、`ROPgadget` 和目标程序本身验证假设
@@ -53,7 +53,7 @@ libc 策略：
 2. 识别 bug class 和 exploitation primitive
 3. 把确认过的 offset、leak、gadget、libc 推导写进 `amds_state/cognition.json.facts`
 4. 把已获得、观察到、猜测中、被阻塞、作为目标的 exploitation capability 写进 `amds_state/cognition.json.capabilities`
-5. 配置异常时使用 `{{root_name}}/bin/run_pwn.sh {{challenge_path}} info` 检查 binary/libc/ld/host/port 解析状态
+5. 配置异常时使用 `{{root_name}}/scripts/pwn/run_pwn.sh {{challenge_path}} info` 检查 binary/libc/ld/host/port 解析状态
 6. libc 未知时，把符号泄露作为独立里程碑，不要提前套 offset 或 one_gadget
 7. 第一个稳定 PIE、canary、heap 或 libc leak 后按对象创建 checkpoint，例如 `pie-base-leaked`、`canary-value-leaked`、`libc-base-resolved`
 8. risky pivot 前和 remote adaptation 前按具体风险创建 checkpoint，例如 `before-fsop-pivot`、`before-remote-libc-switch`

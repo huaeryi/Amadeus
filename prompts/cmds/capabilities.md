@@ -1,7 +1,7 @@
 capabilities 机制：
-- `amds_state/cognition.json.capabilities` 是机器可读 source of truth；`amds_state/COGNITION.md` 只能由 `{{root_name}}/bin/capabilities.py render {{challenge_path}}` 生成
-- 如果题目目录没有 `amds_state/cognition.json`，运行 `{{root_name}}/bin/capabilities.py init {{challenge_path}}`
-- 每次新增或更新 capability 后，必须运行 `{{root_name}}/bin/capabilities.py render {{challenge_path}}`；如果校验失败，先修 JSON
+- `amds_state/cognition.json.capabilities` 是机器可读 source of truth；`amds_state/COGNITION.md` 只能由 `{{root_name}}/scripts/state/capabilities.py render {{challenge_path}}` 生成
+- 如果题目目录没有 `amds_state/cognition.json`，运行 `{{root_name}}/scripts/state/capabilities.py init {{challenge_path}}`
+- 每次新增或更新 capability 后，必须运行 `{{root_name}}/scripts/state/capabilities.py render {{challenge_path}}`；如果校验失败，先修 JSON
 
 status 生命周期：
 - `hypothesis`：推测可能成立，只能作为探索方向，不能作为强依赖

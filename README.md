@@ -8,10 +8,14 @@ Amadeus 是一个面向 CTF 解题的轻量级 Agent 工作流工具箱。它把
 
 ```text
 Amadeus/
-├── bin/                 # amds 主入口、初始化、checkpoint、状态文档、pwn 运行脚本
+├── bin/                 # amds 主入口
 ├── challenges/          # 每道题的独立工作区
 ├── prompts/             # 项目策略、命令模式 prompt、题型 prompt、学习规则
-├── script/              # NSSCTF / BUUCTF 抓题脚本
+├── scripts/
+│   ├── challenge/       # challenge 初始化、checkpoint、restore
+│   ├── platform/        # NSSCTF / BUUCTF 抓题脚本
+│   ├── pwn/             # pwn 运行入口
+│   └── state/           # cognition/capability 状态文档工具
 ├── templates/           # challenge 初始化模板
 └── webui/               # Challenge Console 前端和 Python API 服务
 ```
@@ -21,8 +25,8 @@ Amadeus/
 初始化题目：
 
 ```bash
-bin/init_challenge.sh challenges/baby_tcache
-bin/init_challenge.sh challenges/defcon/baby_tcache
+scripts/challenge/init_challenge.sh challenges/baby_tcache
+scripts/challenge/init_challenge.sh challenges/defcon/baby_tcache
 ```
 
 启动解题：
@@ -138,8 +142,8 @@ bin/amds exec --workflow pwn https://www.nssctf.cn/problem/131
 也可以直接使用平台脚本：
 
 ```bash
-NSSCTF_COOKIE='...' script/fetch_nssctf.py https://www.nssctf.cn/problem/131
-BUUCTF_COOKIE='...' script/fetch_buuctf.py 'https://buuoj.cn/challenges#刮开有奖'
+NSSCTF_COOKIE='...' scripts/platform/fetch_nssctf.py https://www.nssctf.cn/problem/131
+BUUCTF_COOKIE='...' scripts/platform/fetch_buuctf.py 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
 本地 `.env` 可保存平台 cookie；shell 中已经 export 的值优先级更高。不要提交 cookie、token、flag 或 session 文件。
@@ -171,7 +175,7 @@ challenges/baby_tcache/
 约定：
 
 - `amds_state/cognition.json` 是机器可读状态源。
-- `amds_state/COGNITION.md` 由 `bin/state_docs.py` 生成，不建议手写。
+- `amds_state/COGNITION.md` 由 `scripts/state/state_docs.py` 生成，不建议手写。
 - 命令输出、调试日志、截图和脚本结果放入 `amds_state/evidence/`。
 - 每个 challenge 目录是独立 git 仓库，checkpoint 就是该目录内的 commit。
 - pwn 运行配置优先读取 `amds_state/run.env`，同时兼容旧位置 `.pwnrun`。
@@ -179,8 +183,8 @@ challenges/baby_tcache/
 更新状态文档：
 
 ```bash
-bin/state_docs.py render challenges/baby_tcache
-bin/capabilities.py validate challenges/baby_tcache
+scripts/state/state_docs.py render challenges/baby_tcache
+scripts/state/capabilities.py validate challenges/baby_tcache
 ```
 
 ## Checkpoint
@@ -188,28 +192,28 @@ bin/capabilities.py validate challenges/baby_tcache
 创建 checkpoint：
 
 ```bash
-bin/checkpoint.sh env-profiled challenges/baby_tcache
-bin/checkpoint.sh libc-base-resolved challenges/baby_tcache
+scripts/challenge/checkpoint.sh env-profiled challenges/baby_tcache
+scripts/challenge/checkpoint.sh libc-base-resolved challenges/baby_tcache
 ```
 
 恢复 checkpoint：
 
 ```bash
-bin/restore.sh latest challenges/baby_tcache
-bin/restore.sh <commit-hash> challenges/baby_tcache
+scripts/challenge/restore.sh latest challenges/baby_tcache
+scripts/challenge/restore.sh <commit-hash> challenges/baby_tcache
 ```
 
 建议只在稳定里程碑创建 checkpoint，例如环境确认、漏洞确认、泄露可复现、地址解析完成、关键 primitive 可用、远程适配成功。
 
 ## pwn 运行
 
-`bin/run_pwn.sh` 统一处理 local、remote、patched 和 info：
+`scripts/pwn/run_pwn.sh` 统一处理 local、remote、patched 和 info：
 
 ```bash
-bin/run_pwn.sh challenges/baby_tcache info
-bin/run_pwn.sh challenges/baby_tcache local
-bin/run_pwn.sh challenges/baby_tcache remote 127.0.0.1 5000
-bin/run_pwn.sh challenges/baby_tcache patched
+scripts/pwn/run_pwn.sh challenges/baby_tcache info
+scripts/pwn/run_pwn.sh challenges/baby_tcache local
+scripts/pwn/run_pwn.sh challenges/baby_tcache remote 127.0.0.1 5000
+scripts/pwn/run_pwn.sh challenges/baby_tcache patched
 ```
 
 它会读取 `amds_state/run.env`，自动检测 binary、patched binary、libc 和 ld，并导出：
@@ -240,11 +244,11 @@ Web UI 可用于浏览题目、创建并初始化 challenge、查看核心文档
 
 ## 推荐流程
 
-1. `bin/init_challenge.sh challenges/<name>` 初始化题目。
-2. 放入附件，运行 `bin/run_pwn.sh challenges/<name> info` 确认配置。
+1. `scripts/challenge/init_challenge.sh challenges/<name>` 初始化题目。
+2. 放入附件，运行 `scripts/pwn/run_pwn.sh challenges/<name> info` 确认配置。
 3. 使用 `bin/amds pre ...` 做前处理。
 4. 使用 `bin/amds solve ...` 或 `bin/amds guide ...` 解题。
-5. 在关键稳定节点运行 `bin/checkpoint.sh <name> challenges/<name>`。
+5. 在关键稳定节点运行 `scripts/challenge/checkpoint.sh <name> challenges/<name>`。
 6. 将证据放入 `amds_state/evidence/`，最终 exploit 写入 `exp.py`，writeup 写入 `wp.md`。
 7. 解后运行 `bin/amds learn <name>` 做复盘。
 

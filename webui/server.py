@@ -20,7 +20,9 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR / "webui" / "static"
 IMGS_DIR = ROOT_DIR / "webui" / "imgs"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
-BIN_DIR = ROOT_DIR / "bin"
+CHALLENGE_SCRIPTS_DIR = ROOT_DIR / "scripts" / "challenge"
+STATE_SCRIPTS_DIR = ROOT_DIR / "scripts" / "state"
+PWN_SCRIPTS_DIR = ROOT_DIR / "scripts" / "pwn"
 STATE_DIR_NAME = "amds_state"
 CORE_DOCUMENTS = ("cognition.json", "COGNITION.md", "run.env")
 GENERATED_DOCUMENTS = {"COGNITION.md"}
@@ -193,7 +195,7 @@ def derive_solve_status(stage: str) -> str:
 
 
 def run_script(script_name: str, *args: str) -> dict[str, Any]:
-    command = ["bash", str(BIN_DIR / script_name), *args]
+    command = ["bash", str(CHALLENGE_SCRIPTS_DIR / script_name), *args]
     result = subprocess.run(
         command,
         cwd=ROOT_DIR,
@@ -213,13 +215,13 @@ def run_script(script_name: str, *args: str) -> dict[str, Any]:
 
 def render_state_docs(path: Path) -> dict[str, Any]:
     result = subprocess.run(
-        ["python3", str(BIN_DIR / "state_docs.py"), "render", str(path)],
+        ["python3", str(STATE_SCRIPTS_DIR / "state_docs.py"), "render", str(path)],
         cwd=ROOT_DIR,
         capture_output=True,
         text=True,
     )
     payload = {
-        "command": ["python3", str(BIN_DIR / "state_docs.py"), "render", str(path)],
+        "command": ["python3", str(STATE_SCRIPTS_DIR / "state_docs.py"), "render", str(path)],
         "code": result.returncode,
         "stdout": result.stdout,
         "stderr": result.stderr,
@@ -461,7 +463,7 @@ def build_checkpoint_graph(checkpoints: list[dict[str, Any]]) -> dict[str, Any]:
 
 def parse_run_info(path: Path) -> dict[str, Any]:
     result = subprocess.run(
-        ["bash", str(BIN_DIR / "run_pwn.sh"), str(path), "info"],
+        ["bash", str(PWN_SCRIPTS_DIR / "run_pwn.sh"), str(path), "info"],
         cwd=ROOT_DIR,
         capture_output=True,
         text=True,

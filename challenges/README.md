@@ -14,9 +14,9 @@ Typical files inside a challenge directory:
 - `COGNITION.md`: generated human-readable view of cognition
 - `evidence/`: command output, debugger logs, screenshots, and script result artifacts
 - `cognition.json.metadata.tracked_files`: important files tracked by the workflow
-- `run.env`: run configuration for `bin/run_pwn.sh`
+- `run.env`: run configuration for `scripts/pwn/run_pwn.sh`
 - `attempts/`: notes for failed or abandoned branches
-- `checkpoints/`: rollback snapshots created by `bin/checkpoint.sh`
+- `checkpoints/`: rollback snapshots created by `scripts/challenge/checkpoint.sh`
 - `exp.py` or `solve.py`: final exploit or solver script
 - `wp.md`: final writeup
 - challenge attachments such as binaries, source archives, libc, or ld
@@ -24,23 +24,23 @@ Typical files inside a challenge directory:
 Initialize a challenge workspace with:
 
 ```bash
-bin/init_challenge.sh challenges/<challenge-name>
+scripts/challenge/init_challenge.sh challenges/<challenge-name>
 ```
 
 For pwn challenges, prefer:
 
 ```bash
-bin/run_pwn.sh challenges/<challenge-name> info
-bin/run_pwn.sh challenges/<challenge-name> local
-bin/run_pwn.sh challenges/<challenge-name> remote <host> <port>
-bin/run_pwn.sh challenges/<challenge-name> patched
+scripts/pwn/run_pwn.sh challenges/<challenge-name> info
+scripts/pwn/run_pwn.sh challenges/<challenge-name> local
+scripts/pwn/run_pwn.sh challenges/<challenge-name> remote <host> <port>
+scripts/pwn/run_pwn.sh challenges/<challenge-name> patched
 ```
 
 Checkpoint meaningful milestones only:
 
 ```bash
-bin/checkpoint.sh env-ok challenges/<challenge-name>
-bin/restore.sh latest challenges/<challenge-name>
+scripts/challenge/checkpoint.sh env-ok challenges/<challenge-name>
+scripts/challenge/restore.sh latest challenges/<challenge-name>
 ```
 
 Do not commit private flags, live tokens, cookies, session files, personal notes with secrets, or unrelated downloaded materials.
