@@ -122,6 +122,36 @@ AMDS_POLICY=aggressive bin/amds pwn baby_tcache -- --search
 
 `exec` 模式会把当前 policy 同时传给 fetch 和后续 solve。原来的 `.rules` 已迁移到 prompt policy 文件。
 
+## Skills 和 MCP
+
+Amadeus 的 prompts 会引用 Codex/agent skills；项目本身不负责安装 skills。Codex skills 的通用说明可参考 [OpenAI skills catalog](https://github.com/openai/skills) 和 [OpenAI skills help](https://help.openai.com/en/articles/20001066-skills-in-chatgpt)。
+
+推荐安装的 skills：
+
+| Skill | 用途 |
+| --- | --- |
+| `solve-challenge` | 不确定题型时做初始分类和调度。 |
+| `ctf-pwn` | pwn 主流程，覆盖栈、fmt、heap、ROP、ret2libc、seccomp 等。 |
+| `ctf-web` | web 题主流程，覆盖鉴权、SSTI、SQLi、XSS、SSRF、JWT 等。 |
+| `ctf-crypto` | crypto 题主流程，覆盖 RSA、ECC、格、PRNG、padding oracle 等。 |
+| `ctf-reverse` | reverse 主流程，覆盖 ELF/APK/WASM/VM/混淆/约束求解等。 |
+| `ctf-misc` | misc 主流程，覆盖编码、取证、流量、音频、图片、jail、z3 等。 |
+| `ctf-ai-ml` | AI/ML 类 CTF，覆盖模型攻击、对抗样本、LLM/prompt 题等。 |
+| `ctf-writeup` | 解完后整理 `wp.md` / `wp_cn.md`。 |
+| `exploit-chain-planning` | 复杂利用链拆解、证据门槛和分支规划。 |
+
+推荐配置的 MCP / 调试服务：
+
+| MCP / 工具 | 链接 | 用途 |
+| --- | --- | --- |
+| Model Context Protocol | [modelcontextprotocol.io](https://modelcontextprotocol.io/) | MCP 标准和客户端/服务端配置参考。 |
+| `pwndbg` | [github.com/pwndbg/pwndbg](https://github.com/pwndbg/pwndbg) | pwn/reverse 动态调试基础工具。 |
+| `pwndbg-mcp` | [PyPI: pwndbg-mcp](https://pypi.org/project/pwndbg-mcp/) | 让 agent 通过 MCP 驱动 GDB/pwndbg 调试 ELF；项目 prompts 默认记录端点为 `127.0.0.1:8780`。 |
+| `pwno-mcp` | [github.com/pwno-io/pwno-mcp](https://github.com/pwno-io/pwno-mcp) | 更重的 pwn/binary research MCP 环境，适合隔离容器和多会话调试。 |
+| `gdb-mcp` | [PyPI: gdb-mcp](https://pypi.org/project/gdb-mcp/) | 轻量 GDB MCP 方案，可作为没有 pwndbg 集成时的备选。 |
+
+MCP 服务需要在你的 Codex/Claude/其他客户端配置中单独启用；Amadeus 只在 prompts 和 `cognition.json.state.debug` 中约定如何记录和使用这些端点。
+
 ## 抓题
 
 只抓题：
