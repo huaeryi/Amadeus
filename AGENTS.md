@@ -9,4 +9,4 @@ Use this directory as a lightweight toolbox for Codex-driven CTF work.
 - `prompts/cmds/guide.md` is used by `bin/amds guide ...` to make Codex ask short thinking questions before key pivots.
 - `challenges/` may contain grouped challenge paths such as `challenges/defcon/baby_tcache`.
 
-When solving a pwn challenge through `bin/amds`, prefer the workflow embedded in `prompts/skills/pwn.md`.
+When solving a pwn challenge through `bin/amds`, prefer the workflow embedded in `prompts/workflow/pwn.md`.

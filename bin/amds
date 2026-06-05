@@ -51,10 +51,10 @@ examples:
 behavior:
   - solve/guide/pre/audit/learn targets are always resolved under ./challenges/
   - target x402_research/x402 means ./challenges/x402_research/x402
-  - solve mode reads prompts/cmds/solve.md, then the --workflow prompt under prompts/skills/
-  - guide mode reads prompts/cmds/guide.md, then the --workflow prompt under prompts/skills/
+  - solve mode reads prompts/cmds/solve.md, then the --workflow prompt under prompts/workflow/
+  - guide mode reads prompts/cmds/guide.md, then the --workflow prompt under prompts/workflow/
   - pre mode reads prompts/cmds/pre.md and stops after environment setup, basic facts, and initial ideas
-  - audit mode reads prompts/cmds/audit.md, then the --workflow prompt under prompts/skills/
+  - audit mode reads prompts/cmds/audit.md, then the --workflow prompt under prompts/workflow/
   - grouped challenges can live under ./challenges/<group>/<challenge>
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
@@ -226,7 +226,7 @@ resolve_template() {
 
     for candidate in \
         "${prompt_cmd_dir}/${name}.md" \
-        "${prompt_skill_dir}/${name}.md" \
+        "${prompt_workflow_dir}/${name}.md" \
         "${prompt_dir}/${name}.md" \
         "${legacy_prompt_dir}/${name}.md" \
         "${legacy_prompt_dir}/${name}.txt"
@@ -243,7 +243,7 @@ resolve_template() {
 template_exists() {
     local name="$1"
     [ -f "${prompt_cmd_dir}/${name}.md" ] || \
-        [ -f "${prompt_skill_dir}/${name}.md" ] || \
+        [ -f "${prompt_workflow_dir}/${name}.md" ] || \
         [ -f "${prompt_dir}/${name}.md" ] || \
         [ -f "${legacy_prompt_dir}/${name}.md" ] || \
         [ -f "${legacy_prompt_dir}/${name}.txt" ]
@@ -309,7 +309,7 @@ platform="$(detect_platform)"
 prompt_root="."
 prompt_dir="${root_dir}/prompts"
 prompt_cmd_dir="${prompt_dir}/cmds"
-prompt_skill_dir="${prompt_dir}/skills"
+prompt_workflow_dir="${prompt_dir}/workflow"
 legacy_prompt_dir="${root_dir}/pts"
 
 print_prompt=0

@@ -10,7 +10,7 @@ Amadeus 是一个面向 CTF 解题的轻量级 Agent 工作流工具箱。它把
 Amadeus/
 ├── bin/                 # amds 主入口
 ├── challenges/          # 每道题的独立工作区
-├── prompts/             # 项目策略、命令模式 prompt、题型 prompt、学习规则
+├── prompts/             # 项目策略、命令模式 prompt、题型 workflow、学习规则
 ├── scripts/
 │   ├── challenge/       # challenge 初始化、checkpoint、restore
 │   ├── platform/        # NSSCTF / BUUCTF 抓题脚本
