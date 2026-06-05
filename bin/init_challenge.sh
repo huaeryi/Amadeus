@@ -44,7 +44,7 @@ git_commit_if_needed() {
     echo "created git checkpoint [ckpt0 ${commit_name}]"
 }
 
-for name in .pwnrun cognition.json exp_example.py; do
+for name in run.env cognition.json exp_example.py; do
     src="${root_dir}/templates/${name}"
     dst="${state_dir}/${name}"
     if [ ! -e "${dst}" ]; then

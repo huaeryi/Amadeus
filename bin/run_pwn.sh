@@ -13,7 +13,7 @@ examples:
   run_pwn.sh challenges/fsb info
 
 behavior:
-  - reads optional amds_state/.pwnrun, falling back to legacy .pwnrun
+  - reads optional amds_state/run.env, falling back to legacy .pwnrun files
   - exports normalized PWN_* environment variables
   - runs exp.py when present
   - falls back to direct binary execution when exp.py is absent
@@ -186,7 +186,10 @@ extra_args=("$@")
 challenge_dir="$(realpath "$challenge_dir")"
 [ -d "$challenge_dir" ] || die "challenge directory not found: $challenge_dir"
 
-config_path="$challenge_dir/amds_state/.pwnrun"
+config_path="$challenge_dir/amds_state/run.env"
+if [ ! -f "$config_path" ] && [ -f "$challenge_dir/amds_state/.pwnrun" ]; then
+    config_path="$challenge_dir/amds_state/.pwnrun"
+fi
 if [ ! -f "$config_path" ] && [ -f "$challenge_dir/.pwnrun" ]; then
     config_path="$challenge_dir/.pwnrun"
 fi
@@ -234,8 +237,8 @@ if [ "$mode" = "remote" ]; then
     port="${port:-${PORT:-}}"
 
     if [ "$REMOTE_APPEND_HOSTPORT" = "1" ]; then
-        [ -n "$host" ] || die "remote host missing; pass it on the command line or set HOST in amds_state/.pwnrun"
-        [ -n "$port" ] || die "remote port missing; pass it on the command line or set PORT in amds_state/.pwnrun"
+        [ -n "$host" ] || die "remote host missing; pass it on the command line or set HOST in amds_state/run.env"
+        [ -n "$port" ] || die "remote port missing; pass it on the command line or set PORT in amds_state/run.env"
     fi
 fi
 

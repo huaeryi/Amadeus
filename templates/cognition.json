@@ -25,7 +25,7 @@
         "wp.md",
       "amds_state/cognition.json",
       "amds_state/COGNITION.md",
-      "amds_state/.pwnrun"
+      "amds_state/run.env"
     ]
   },
   "facts": {

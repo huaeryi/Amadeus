@@ -1,37 +1,20 @@
 # Amadeus
 
-一个封装 Codex / Claude 的轻量级 CTF agent, 主要负责把题目目录、状态文档、checkpoint、执行入口和前端管理面板统一起来，让 agent 解题时有稳定的上下文和可回滚的工作流。
+Amadeus 是一个面向 CTF 解题的轻量级 Agent 工作流工具箱。它把 challenge 目录、状态文档、checkpoint、工作流 prompt、pwn 运行入口、抓题脚本和 Web UI 统一起来，方便 Codex / Claude 在稳定上下文中推进解题。
 
-当前重点支持 pwn，同时已经预留并接入了 web、crypto、reverse、misc 的解题 workflow prompt，以及 x402 审计 workflow prompt。
+当前重点支持 pwn，同时提供 web、crypto、reverse、misc 和 x402 审计工作流。
 
-## 整体结构
+## 目录结构
 
 ```text
 Amadeus/
-├── bin/                 # 命令行入口和工作流脚本
-├── prompts/             # amds 注入给 agent 的 workflow prompt
-├── templates/           # 初始化题目时复制的状态模板
-├── script/              # 平台题目抓取辅助脚本
-├── webui/               # Challenge Console 前端和 Python API 服务
-└── challenges/          # 每道题的独立工作目录
+├── bin/                 # amds 主入口、初始化、checkpoint、状态文档、pwn 运行脚本
+├── challenges/          # 每道题的独立工作区
+├── prompts/             # 项目策略、命令模式 prompt、题型 prompt、学习规则
+├── script/              # NSSCTF / BUUCTF 抓题脚本
+├── templates/           # challenge 初始化模板
+└── webui/               # Challenge Console 前端和 Python API 服务
 ```
-
-核心文件：
-
-- `bin/amds`：agent 启动器，负责 fetch / pre / solve / audit / exec / learn、runner 选择和 workflow prompt 渲染。
-- `bin/init_challenge.sh`：初始化题目目录，创建 `cognition.json`、生成的 `COGNITION.md`、`evidence/`、`.pwnrun`，并在题目目录内创建 git 初始 checkpoint。
-- `bin/state_docs.py`：初始化、校验和渲染 `cognition.json`；`COGNITION.md` 只能由它生成。
-- `bin/capabilities.py`：校验和渲染 `cognition.json.capabilities`；`COGNITION.md` 只能由它生成。
-- `bin/checkpoint.sh`：在题目目录 git 中创建具名 checkpoint commit。
-- `bin/restore.sh`：从 git checkpoint commit 恢复 tracked files。
-- `bin/run_pwn.sh`：pwn 题统一运行入口，支持 local / remote / patched / info。
-- `prompts/cmds/*.md`：solve / guide / fetch / learn / checkpoint 等命令入口和通用策略。
-- `prompts/skills/*.md`：pwn / web / crypto / reverse / misc / x402 等题型 workflow。
-- `prompts/cmds/learn.md`：post-solve 反思和学习入口。
-- `prompts/learn/`：各题型的长期学习规则、反思清单和学习侧重点。
-- `prompts/learn/LEARNING_LOG.md`：每次 `amds learn` 的长期学习变更日志。
-- `templates/cognition.json`：统一保存题目信息、facts、state 和 capabilities。
-- `webui/server.py`：零依赖 Python 后端，提供静态页面和 JSON API。
 
 ## 快速开始
 
@@ -42,274 +25,170 @@ bin/init_challenge.sh challenges/baby_tcache
 bin/init_challenge.sh challenges/defcon/baby_tcache
 ```
 
-启动 pwn 解题工作流：
+启动解题：
 
 ```bash
-bin/amds --workflow pwn baby_tcache
-bin/amds pwn defcon/baby_tcache
+bin/amds baby_tcache
+bin/amds pwn baby_tcache
+bin/amds --workflow pwn defcon/baby_tcache
 ```
 
-只做题目前处理和环境整理：
+只做前处理：
 
 ```bash
 bin/amds pre pwn baby_tcache
-bin/amds --mode pre --workflow pwn baby_tcache
 ```
 
-启动带提问和复盘的主动学习工作流：
+训练式引导解题：
 
 ```bash
 bin/amds guide pwn baby_tcache
 ```
 
-启动 x402 审计/挖洞工作流：
-
-```bash
-bin/amds audit audit_target
-bin/amds audit x402 audit_target
-bin/amds --mode audit --workflow x402 audit_target
-```
-
-抓题但不解题：
-
-```bash
-bin/amds fetch https://www.nssctf.cn/problem/131
-bin/amds fetch --group defcon https://www.nssctf.cn/problem/131
-bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
-```
-
-抓题后自动进入 solve：
-
-```bash
-bin/amds exec https://www.nssctf.cn/problem/131
-bin/amds exec --workflow pwn https://www.nssctf.cn/problem/131
-```
-
-对已完成或阶段性完成的题目做反思学习：
+解后复盘：
 
 ```bash
 bin/amds learn baby_tcache
 bin/amds learn baby_tcache --session latest
-bin/amds learn baby_tcache --session 20260522-143012-pwn
 ```
 
-本地、远程和 patched 运行 pwn exploit：
-
-```bash
-bin/run_pwn.sh challenges/baby_tcache
-bin/run_pwn.sh challenges/baby_tcache remote 127.0.0.1 5000
-bin/run_pwn.sh challenges/baby_tcache patched
-bin/run_pwn.sh challenges/baby_tcache info
-```
-
-## amds 工作流
-
-`bin/amds` 是对 `codex` / `claude` 的薄封装，会在 Amadeus 根目录启动所选 agent，并把题目路径、workflow prompt 和附加说明一起传入。默认 runner 是 `codex`；需要 Claude 时用 `--runner claude` 或 `--claude`。
-
-所有非 URL 目标都从 `challenges/` 起算：`x402_research/x402` 表示 `challenges/x402_research/x402`。如果项目 clone 在别处，先移动或 symlink 到 `challenges/` 下。
+## `amds` 用法
 
 基本格式：
 
 ```bash
-bin/amds [--runner codex|claude] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
+bin/amds [--runner codex|claude] [--policy strict|aggressive|none] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
 ```
 
-Runner 示例：
+常用模式：
 
-```bash
-bin/amds --claude audit audit_target
-bin/amds --runner claude audit x402 audit_target
-AMDS_RUNNER=claude bin/amds audit audit_target
-bin/amds --claude audit audit_target -- --model sonnet
-```
+| 模式 | 说明 |
+| --- | --- |
+| `solve` | 标准解题模式，默认 workflow 为 `pwn`。 |
+| `guide` | 引导式训练模式，会在关键分叉前要求短问题和判断。 |
+| `pre` | 只做题目前处理、环境识别和基础事实记录。 |
+| `audit` | 审计/挖洞模式，默认 workflow 为 `x402`。 |
+| `fetch` | 抓取题面、附件和 metadata，不进入解题。 |
+| `exec` | 先 fetch，再进入 solve。 |
+| `learn` | 解后或阶段性完成后的复盘学习。 |
 
-`--` 后面的参数原样传给当前 runner。可用 `CODEX_BIN` 或 `CLAUDE_BIN` 指定二进制路径。
-
-平台兼容：`bin/amds` 支持 macOS 默认 `/bin/bash 3.2` 和 Linux bash，不依赖 GNU `realpath -m` 或 bash 4 `mapfile`。
-
-### solve
-
-`solve` 解析 `challenges/<name>`、`challenges/<group>/<name>` 或从 `challenges/` 起算的路径，先加载 `prompts/cmds/solve.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `pwn`。
-
-```bash
-bin/amds --mode solve --workflow pwn newnote
-bin/amds --workflow pwn newnote
-bin/amds --workflow pwn defcon/newnote
-bin/amds --group defcon --workflow pwn newnote
-bin/amds pwn newnote
-bin/amds newnote
-```
-
-### audit
-
-`audit` 是审计/挖洞动作，不走 `solve` 入口。它解析 `challenges/<name>`、`challenges/<group>/<name>` 或从 `challenges/` 起算的路径，先加载 `prompts/cmds/audit.md`，再根据 `--workflow` 加载 `prompts/skills/<workflow>.md`，最后追加 `prompts/cmds/checkpoint.md`。默认 workflow 是 `x402`。
-
-```bash
-bin/amds audit audit_target
-bin/amds audit x402 audit_target
-bin/amds audit --workflow x402 x402_research/x402 --claude
-bin/amds --mode audit --workflow x402 audit_target
-bin/amds --group audits audit x402_target
-```
-
-### guide
-
-`solve` 先读 `prompts/cmds/solve.md`，`guide` 先读 `prompts/cmds/guide.md`。CTF 方向由 `--workflow` 决定，例如 `--workflow pwn` 会再加载 `prompts/skills/pwn.md`；checkpoint 规则统一追加 `prompts/cmds/checkpoint.md`。
-
-```bash
-bin/amds guide pwn newnote
-bin/amds guide pwn defcon/newnote
-bin/amds guide --workflow pwn newnote
-bin/amds --mode guide --workflow pwn newnote
-```
-
-题型快捷参数：
+题型快捷方式：
 
 ```bash
 bin/amds --web web_chal
 bin/amds --crypto crypto_chal
 bin/amds --reverse rev_chal
 bin/amds --misc misc_chal
+bin/amds audit x402 audit_target
 ```
 
-常用附加参数：
+切换 runner：
 
 ```bash
-bin/amds --workflow pwn newnote --append "远程地址是 node4.example:30000"
-bin/amds --workflow pwn newnote --dry-run
-bin/amds --workflow pwn newnote -- --search -m gpt-5.5
+bin/amds --runner claude audit audit_target
+bin/amds --claude audit x402 audit_target
 ```
 
-主动学习模式：
+`--` 后面的参数会原样传给底层 runner：
 
 ```bash
-bin/amds guide pwn newnote
+bin/amds --workflow pwn baby_tcache -- --search -m gpt-5.5
 ```
 
-`guide` 使用 `prompts/cmds/guide.md` 作为入口：agent 在关键分叉前会先让你判断，要求解释命令输出如何改变结论，并在 `cognition.json.state` 维护 `your_turn` 问题，渲染到 `COGNITION.md`，在 `wp.md` 维护 `Learning checkpoints`。比赛冲刺时用 `solve`，训练和复盘时用 `guide`。
+## Policy
 
-### pre
+`bin/amds` 默认使用 `strict` policy。默认模式适合训练、比赛复盘和需要避免题解污染的本地解题：禁止搜索 WP、公开 exploit、博客复现和 GitHub 解法，但允许基于当前题目附件、远程泄露或用户给出的信息做 libc/ld 匹配。
 
-`pre` 只做题目前处理：初始化状态、识别附件、补运行配置、尽量 patch pwn 环境、记录基础信息，并给少量初步思路；不会进入完整 exploit/solve。
+如果目标是尽快做出题目，可以显式切到 `aggressive`：
 
 ```bash
-bin/amds pre pwn baby_tcache
-bin/amds pre --workflow pwn baby_tcache
-bin/amds --mode pre --workflow pwn baby_tcache
-bin/amds --mode pre --workflow web web_chal
+bin/amds --policy aggressive --workflow pwn baby_tcache -- --search
+AMDS_POLICY=aggressive bin/amds pwn baby_tcache -- --search
 ```
 
-对 pwn 题，`pre` 会优先维护 `amds_state/.pwnrun`，并让 `bin/run_pwn.sh <challenge_dir> info` 能展示主 binary、patched binary、libc、ld、远程地址等基础解析结果。
+`--policy aggressive` 只负责切换注入的项目策略；是否真的联网搜索仍取决于传给底层 runner 的能力和参数，例如 Codex 的 `--search`。
 
-### fetch
+可选值：
 
-`fetch` 只获取题面、附件、metadata 和环境信息，不进入解题。
+| Policy | Prompt | 说明 |
+| --- | --- | --- |
+| `strict` | `prompts/cmds/policy.md` | 默认。禁止题解/WP/公开 exploit 搜索，但允许 libc/ld 匹配。 |
+| `aggressive` | `prompts/cmds/policy_aggressive.md` | 允许搜索和使用 WP、公开 exploit、题名、flag 片段等外部线索，但要求记录来源并本地/远程验证。 |
+| `none` | 无 | 不注入项目 policy。 |
+
+`exec` 模式会把当前 policy 同时传给 fetch 和后续 solve。原来的 `.rules` 已迁移到 prompt policy 文件。
+
+## 抓题
+
+只抓题：
 
 ```bash
 bin/amds fetch https://www.nssctf.cn/problem/131
 bin/amds fetch --group defcon https://www.nssctf.cn/problem/131
-bin/amds --mode fetch https://www.nssctf.cn/problem/131
 bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
-### exec
-
-`exec` 先 fetch，再根据题目类别进入 solve；也可以显式指定 solve workflow。
+抓题后自动解题：
 
 ```bash
 bin/amds exec https://www.nssctf.cn/problem/131
-bin/amds exec --group defcon https://www.nssctf.cn/problem/131
-bin/amds --mode exec https://www.nssctf.cn/problem/131
 bin/amds exec --workflow pwn https://www.nssctf.cn/problem/131
-bin/amds --mode exec --workflow web https://example.com/challenge
 ```
 
-### learn
-
-`learn` 对已完成或阶段性完成的题目做 post-solve 学习：生成或更新 `REFLECTION.md`，维护 `prompts/learn/<category>_learning.md`，并追加 `prompts/learn/LEARNING_LOG.md`。
-
-不指定 session 时，只从 challenge 目录文件学习：
-
-```bash
-bin/amds learn baby_tcache
-bin/amds --mode learn baby_tcache
-```
-
-指定 session 时，从 challenge 文件和 session 一起学习；challenge 文件仍是事实基准，session 只作为过程证据：
-
-```bash
-bin/amds learn baby_tcache --session latest
-bin/amds learn baby_tcache --session 20260522-143012-pwn
-```
-
-fetch helper 会读取本地 `.env`，但 shell 中已经 export 的值优先级更高。敏感 cookie 只放本地环境，不提交到仓库。
+也可以直接使用平台脚本：
 
 ```bash
 NSSCTF_COOKIE='...' script/fetch_nssctf.py https://www.nssctf.cn/problem/131
-NSSCTF_COOKIE='...' script/fetch_nssctf.py --group defcon https://www.nssctf.cn/problem/131
 BUUCTF_COOKIE='...' script/fetch_buuctf.py 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
-## Challenge 目录约定
+本地 `.env` 可保存平台 cookie；shell 中已经 export 的值优先级更高。不要提交 cookie、token、flag 或 session 文件。
 
-每个题目目录都是一个独立 workspace，典型结构如下：
+## Challenge 工作区
+
+题目路径从 `challenges/` 起算：
+
+```text
+challenges/<challenge-name>/
+challenges/<group>/<challenge-name>/
+```
+
+初始化后常见结构：
 
 ```text
 challenges/baby_tcache/
-├── cognition.json        # 机器可读 metadata/facts/state/capabilities source of truth
-├── COGNITION.md          # 从 cognition.json 生成的人类可读视图
-├── evidence/            # 命令输出、调试日志、截图、脚本结果等证据
-├── .pwnrun              # pwn 运行配置
-├── exp.py               # 最终 exploit 或 solve 脚本
-└── wp.md                # 最终 writeup
+├── amds_state/
+│   ├── cognition.json
+│   ├── COGNITION.md
+│   ├── run.env
+│   ├── exp_example.py
+│   └── evidence/
+├── exp.py
+├── wp.md
+└── <attachments>
 ```
-
-也可以按比赛分组：
-
-```text
-challenges/defcon/baby_tcache/
-```
-
-分组目录只是容器，真正的 challenge 目录仍然是包含 `cognition.json` 等文件的叶子目录。
 
 约定：
 
-- `cognition.json.facts` 只写已经被文件、运行结果、调试器或 exploit 输出验证的事实；`COGNITION.md` 是生成视图，不要手写。
-- `cognition.json.state` 写当前判断、下一步、候选路线、失败路线和开放问题；`COGNITION.md` 是生成视图，不要手写。
-- `cognition.json.capabilities` 写当前已获得、观察到、猜测中、被阻塞、作为目标的能力；所有 capability 必须有 env 和 evidence。
-- 后续命令输出、调试日志、截图、脚本结果等证据文件统一放进题目目录的 `evidence/`，并在 `cognition.json` 中用相对路径引用。
-- `COGNITION.md` 是生成文件，不要手写；更新 JSON 后运行 `bin/state_docs.py render <challenge_dir>`。
-- checkpoint 使用题目目录内的 git commit；重要解题文件清单放在 `cognition.json.metadata.tracked_files`。
-- pwn 题优先让 `exp.py` 读取 `run_pwn.sh` 导出的 `PWN_*` 环境变量。
+- `amds_state/cognition.json` 是机器可读状态源。
+- `amds_state/COGNITION.md` 由 `bin/state_docs.py` 生成，不建议手写。
+- 命令输出、调试日志、截图和脚本结果放入 `amds_state/evidence/`。
+- 每个 challenge 目录是独立 git 仓库，checkpoint 就是该目录内的 commit。
+- pwn 运行配置优先读取 `amds_state/run.env`，同时兼容旧位置 `.pwnrun`。
 
-## Capabilities
-
-`cognition.json.capabilities` 记录 exploit 过程中已经获得、观察到、猜测中、被阻塞、正在作为目标的能力，供后续 planner 选择下一步 exploit target。`cognition.json` 是 source of truth，`COGNITION.md` 只是生成视图。
+更新状态文档：
 
 ```bash
-bin/capabilities.py init challenges/baby_tcache
+bin/state_docs.py render challenges/baby_tcache
 bin/capabilities.py validate challenges/baby_tcache
-bin/capabilities.py render challenges/baby_tcache
 ```
 
-约束：
-
-- 每个 capability 必须有 `env`，可用值包括 `local`、`native`、`docker`、`patched`、`remote`。
-- `local` verified 不等于 `remote` verified；跨环境迁移必须重新验证。
-- 每个 capability 必须有 evidence，至少包含简短说明，并提供 artifact 或 command；artifact 优先指向 `evidence/` 下的相对路径。
-- `verified` 必须有 evidence 和 verification。
-- `blocked` 必须有 blocked_by，并在 reason 或 summary 中说明阻塞原因。
-- 更新 `cognition.json` 后运行 `bin/state_docs.py render <challenge_dir>`，不要手写 `COGNITION.md`。
-
 ## Checkpoint
-
-Checkpoint 是这次工作流的核心增量之一。它用于保存已经确认的稳定里程碑，方便在尝试高风险利用路线、切换思路或适配远程前回滚。
 
 创建 checkpoint：
 
 ```bash
 bin/checkpoint.sh env-profiled challenges/baby_tcache
-bin/checkpoint.sh canary-value-leaked challenges/baby_tcache
 bin/checkpoint.sh libc-base-resolved challenges/baby_tcache
 ```
 
@@ -320,36 +199,35 @@ bin/restore.sh latest challenges/baby_tcache
 bin/restore.sh <commit-hash> challenges/baby_tcache
 ```
 
-实现细节：
+建议只在稳定里程碑创建 checkpoint，例如环境确认、漏洞确认、泄露可复现、地址解析完成、关键 primitive 可用、远程适配成功。
 
-- 每个 checkpoint 是题目目录 git 中的一个 commit。
-- `init_challenge.sh` 首次初始化时创建 `[ckpt0 <题目名>]`。
-- `checkpoint.sh <name>` 后续创建 `[ckptN <name>]`。
-- webui 从 `git log` 读取 checkpoint 列表和父子关系。
-- `restore.sh <commit>` 使用 git 从指定 checkpoint 恢复 tracked files。
+## pwn 运行
 
-推荐策略：
+`bin/run_pwn.sh` 统一处理 local、remote、patched 和 info：
 
-- checkpoint 是回滚锚点，不是 autosave。
-- 名称必须具体到“已验证对象 + 结果”，避免 `primitive-confirmed`、`payload-confirmed`、`flag-confirmed` 这种泛名。
-- 推荐格式是 `<area>-<fact>-<state>`，比如 `routes-auth-map-done`、`canary-value-leaked`、`arb-write-works`、`orw-chain-working`、`finding-01-replay-verified`。
-- 简单题通常 3 到 5 个 checkpoint；中等题通常 5 到 8 个；复杂题或审计项目通常 8 到 12 个。
-- 在第一次大型 heap metadata corruption、`setcontext`、FSOP、ret2dlresolve、SROP、切换 exploit 路线、适配远程、finding PoC 成功前后创建 checkpoint。
+```bash
+bin/run_pwn.sh challenges/baby_tcache info
+bin/run_pwn.sh challenges/baby_tcache local
+bin/run_pwn.sh challenges/baby_tcache remote 127.0.0.1 5000
+bin/run_pwn.sh challenges/baby_tcache patched
+```
 
-## 前端显示
+它会读取 `amds_state/run.env`，自动检测 binary、patched binary、libc 和 ld，并导出：
 
-前端是 `webui/` 下的 Challenge Console，定位是题目管理和状态可视化，不是完整 IDE。
+```text
+PWN_MODE, PWN_CHAL_DIR, PWN_EXP, PWN_BIN, PWN_PATCHED_BIN,
+PWN_ACTIVE_BIN, PWN_LIBC, PWN_LD, PWN_HOST, PWN_PORT,
+PWN_LOCAL_ARGS, PWN_REMOTE_ARGS, PWN_LIB_DIR
+```
+
+新 exploit 建议读取这些 `PWN_*` 环境变量，让 local、remote 和 patched 模式共享同一个 `exp.py`。
+
+## Web UI
 
 启动：
 
 ```bash
-python3 webui/server.py
-```
-
-或：
-
-```bash
-./webui/start.sh
+webui/start.sh
 ```
 
 默认地址：
@@ -358,106 +236,20 @@ python3 webui/server.py
 http://127.0.0.1:9999/
 ```
 
-当前前端能力：
+Web UI 可用于浏览题目、创建并初始化 challenge、查看核心文档、预览文件、查看 `run_pwn.sh info`、创建/恢复 checkpoint 和查看 checkpoint graph。
 
-- 题目列表、搜索和基础状态展示。
-- 创建题目并自动初始化。
-- 编辑 `cognition.json`、`.pwnrun`；保存 JSON 后自动渲染对应 Markdown。
-- 展示 `run_pwn.sh info` 的解析结果。
-- 创建和恢复 checkpoint。
-- 基于 git commit 历史显示 checkpoint graph，包括 latest / head 标记。
-- 预览顶层文件和二进制 hex dump。
-- 通过文件浏览器查看题目目录中的嵌套文件。
+## 推荐流程
 
-主要 API：
-
-- `GET /api/challenges`
-- `GET /api/challenges/<name>` 或 URL 编码后的 `<group>/<name>`
-- `POST /api/challenges`
-- `POST /api/challenges/<name>/init`
-- `GET /api/challenges/<name>/run-info`
-- `PUT /api/challenges/<name>/document?name=cognition.json`
-- `POST /api/challenges/<name>/checkpoints`
-- `POST /api/challenges/<name>/restore`
-- `GET /api/challenges/<name>/file?path=exp.py`
-
-后台运行示例：
-
-```bash
-nohup python3 webui/server.py --host 0.0.0.0 --port 9999 >/tmp/amadeus-webui.log 2>&1 &
-```
-
-## Skills 和 MCP
-
-Amadeus 的设计前提是和 Codex skills / MCP 配合使用。仓库本身只负责工作流和文件组织，具体解题能力由 skills、调试器和本地工具提供。
-
-推荐 skills：
-
-- `solve-challenge`：不确定题型时作为总入口，先做分类和调度。
-- `ctf-pwn`：pwn 主技能，覆盖栈、格式化字符串、heap、ROP、ret2libc、seccomp、sandbox 等。
-- `ctf-web`：web 题主技能，覆盖路由、鉴权、模板、数据库、上传、SSRF、SSTI、SQLi、XSS、JWT 等。
-- `ctf-crypto`：crypto 题主技能，覆盖 RSA、ECC、格、PRNG、padding oracle、签名、ZKP 等。
-- `ctf-reverse`：reverse 主技能，覆盖 ELF、APK、WASM、VM、混淆、符号执行、约束求解等。
-- `ctf-misc`：misc 主技能，覆盖编码、取证、流量、音频、图片、jail、z3 等。
-- `ctf-writeup`：解完后整理 `wp.md`。
-- `exploit-chain-planning`：复杂利用链拆解、假设验证和分支规划。
-
-推荐 MCP / 外部工具：
-
-- `pwndbg-mcp`：复杂 pwn 题优先使用，适合读取寄存器、栈、堆、bins、tcache、vmmap、断点和崩溃现场。
-- 本地 `gdb` / `pwndbg`：基础动态调试。
-- `checksec`、`file`、`readelf`、`objdump`、`ROPgadget`：pwn / reverse 基础分析。
-- `patchelf` 和题目自带 `ld` / `libc`：复现远程运行环境。
-- `SageMath`、`z3`、`fplll`、`RsaCtfTool`：crypto / misc 求解。
-- `tshark`、`binwalk`、`exiftool`、`ffmpeg`、`sox`：misc / forensics。
-
-pwn 题建议流程：
-
-1. `bin/init_challenge.sh <challenge_dir>`
-2. 读取附件并确认 binary、libc、ld、patched binary、`exp_template.py`
-3. 用 `cognition.json.facts` 固化事实，用 `cognition.json.state` 规划路线，并渲染 `COGNITION.md`
-4. 用 `bin/run_pwn.sh <challenge_dir> info` 检查 `.pwnrun`
-5. 在稳定能力或 leak 后创建具体 checkpoint，例如 `fmt-stack-leak-works`、`libc-base-resolved`
-6. 高风险 pivot 前再创建 checkpoint
-7. 最终产出 `exp.py` 和 `wp.md`
-
-## run_pwn.sh
-
-`run_pwn.sh` 为 pwn 题提供统一入口，并导出一组标准环境变量：
-
-- `PWN_MODE`
-- `PWN_CHAL_DIR`
-- `PWN_EXP`
-- `PWN_BIN`
-- `PWN_PATCHED_BIN`
-- `PWN_ACTIVE_BIN`
-- `PWN_LIBC`
-- `PWN_LD`
-- `PWN_HOST`
-- `PWN_PORT`
-- `PWN_LOCAL_ARGS`
-- `PWN_REMOTE_ARGS`
-
-默认兼容常见 pwntools 写法：
-
-- local：`python3 exp.py`
-- remote：`python3 exp.py r <host> <port>`
-
-新 exploit 建议读取 `PWN_*`，这样 local、remote 和 patched 模式可以共享同一个 `exp.py`。
-
-libc 策略：
-
-- 优先使用当前题目提供的 `libc` 和 `ld`。
-- 优先用 `patchelf`、题目 loader 或 `run_pwn.sh patched` 复现环境。
-- 不要在未确认时静默使用系统 libc。
-- 不要从其他 challenge、历史题目、下载缓存或工具缓存复制 libc / ld。
-- 没有 libc 时，先泄露符号，再根据泄露结果匹配远程 libc。
+1. `bin/init_challenge.sh challenges/<name>` 初始化题目。
+2. 放入附件，运行 `bin/run_pwn.sh challenges/<name> info` 确认配置。
+3. 使用 `bin/amds pre ...` 做前处理。
+4. 使用 `bin/amds solve ...` 或 `bin/amds guide ...` 解题。
+5. 在关键稳定节点运行 `bin/checkpoint.sh <name> challenges/<name>`。
+6. 将证据放入 `amds_state/evidence/`，最终 exploit 写入 `exp.py`，writeup 写入 `wp.md`。
+7. 解后运行 `bin/amds learn <name>` 做复盘。
 
 ## TODO
 
-- [ ] Plan 模式：在正式 solve 前生成可审阅计划，支持用户确认后再执行。
-- [ ] subagent 集成
-- [ ] Checkpoint diff：前端展示 git checkpoint 之间的文件差异。
-- [ ] Checkpoint branch：更明确地支持多分支路线和非线性回滚。
-- [ ] 前端功能完善，Web日志
-- [ ] 更完整的平台抓取：扩展 NSSCTF / BUUCTF 以外的平台适配。
+- [ ] Plan 模式：正式 solve 前生成可审阅计划。
+- [ ] 前端展示 checkpoint evidence的可视化
+- [ ] 更完整的平台抓取适配

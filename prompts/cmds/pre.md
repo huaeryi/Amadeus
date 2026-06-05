@@ -18,9 +18,9 @@
 工作范围：
 1. 补齐题目目录结构，确认附件是否已解压，保留原始压缩包
 2. 记录文件类型、架构、hash、入口文件、运行方式和依赖
-3. 如果是 pwn 题，运行 `file`、`checksec`，识别主 binary、libc、ld，并维护 `amds_state/.pwnrun`
+3. 如果是 pwn 题，运行 `file`、`checksec`，识别主 binary、libc、ld，并维护 `amds_state/run.env`
 4. 如果 pwn 题提供 libc/ld，优先用当前题目目录内文件尝试 `patchelf` 生成 patched binary；不要从其他题目目录复制 libc/ld
-5. 如果缺少 ld 但已有 libc，可以尝试说明如何补齐；只有需要最新/外部信息时才搜索，且不要搜索题解、WP、公开 exploit 或 GitHub 解法
+5. 如果缺少 ld 但已有 libc，可以根据当前 libc 版本查找或反推匹配 ld；记录来源、版本和验证结果，不要搜索题解、WP、公开 exploit 或 GitHub 解法
 6. 如果是 web/reverse/crypto/misc，做对应的最小环境确认：依赖安装提示、启动命令、输入输出样例、关键文件和初步观察
 7. 对目标程序或服务做少量 smoke test，确认能否本地运行；不要长时间 fuzz 或进入完整 exploit/solve
 8. 给出 2 到 4 条初步思路，每条写清依赖的事实、还需要验证什么、下一条建议命令
@@ -36,5 +36,5 @@
 完成标准：
 - `amds_state/cognition.json` 和 `amds_state/COGNITION.md` 已更新
 - 关键基础信息和失败证据保存到 `amds_state/evidence/`
-- pwn 题的 `amds_state/.pwnrun` 尽量可用，`{{root_name}}/bin/run_pwn.sh {{challenge_path}} info` 能展示合理解析结果
+- pwn 题的 `amds_state/run.env` 尽量可用，`{{root_name}}/bin/run_pwn.sh {{challenge_path}} info` 能展示合理解析结果
 - 最终汇报包含：题目目录、识别出的关键文件、保护/运行环境摘要、patch 状态、初步思路和未完成事项

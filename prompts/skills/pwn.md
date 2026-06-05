@@ -15,7 +15,7 @@
 2. `amds_state/cognition.json.state` 记录当前阶段、下一步、checkpoint 计划、失败路线和开放问题
 3. 如果存在 `exp_template.py`，基于它生成 `exp.py`
 4. 优先使用 `{{root_name}}/bin/run_pwn.sh {{challenge_path}} [local|remote|patched]` 统一执行本地、远程和 patched 运行
-5. 如果使用 `run_pwn.sh`，保持 `amds_state/.pwnrun` 中的 `BIN`、`PATCHED_BIN`、`LIBC`、`LD`、`HOST`、`PORT` 准确
+5. 如果使用 `run_pwn.sh`，保持 `amds_state/run.env` 中的 `BIN`、`PATCHED_BIN`、`LIBC`、`LD`、`HOST`、`PORT` 准确
 6. 新写或更新 `exp.py` 时，优先读取 `run_pwn.sh` 导出的 `PWN_*` 环境变量，让 local、remote、patched 共享同一套入口
 7. 用本地命令、`checksec`、`file`、`ldd`、`pwndbg`、`gdb`、`ROPgadget` 和目标程序本身验证假设
 
@@ -26,7 +26,7 @@ libc 策略：
 - 如果题目没有给 libc，先泄露足够符号，再根据泄露结果使用 `libc.rip` 等库匹配站
 - 不要从本地其他 challenge、历史题目、下载缓存、工具缓存或任意非当前题目目录复制 libc/ld
 - 只有当前题目目录中的附件、用户明确指定的路径、远程泄露后匹配出的 libc，才可以作为 libc 来源
-- 如果只有libc没有ld，尝试补全，可以websearch
+- 如果只有 libc 没有 ld，可以根据当前 libc 版本查找或反推匹配 ld；记录来源和版本，并用 `run_pwn.sh patched` 或等价命令验证
 
 调试工具策略：
 - 优先使用 `pwndbg-mcp` 辅助读取寄存器、栈、堆、bins、tcache、vmmap、断点和崩溃现场
@@ -70,4 +70,4 @@ libc 策略：
 - 长输出和复现实验结果统一存到 `amds_state/evidence/`，不要把整段输出塞进 `amds_state/cognition.json`
 - 新写的 `exp.py` 尽量兼容 `run_pwn.sh` 导出的 `PWN_*` 环境变量
 - 不要在 libc 未确认时直接套用本机 libc 的偏移
-- 不要从本地其他目录获取 libc/ld 来“补全”当前题目环境
+- 不要从本地其他目录静默复制 libc/ld 来“补全”当前题目环境；允许基于当前 libc/泄露信息查找匹配 ld 并记录证据

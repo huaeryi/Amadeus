@@ -21,7 +21,8 @@ STATIC_DIR = ROOT_DIR / "webui" / "static"
 IMGS_DIR = ROOT_DIR / "webui" / "imgs"
 CHALLENGES_DIR = ROOT_DIR / "challenges"
 BIN_DIR = ROOT_DIR / "bin"
-CORE_DOCUMENTS = ("cognition.json", "COGNITION.md", ".pwnrun")
+STATE_DIR_NAME = "amds_state"
+CORE_DOCUMENTS = ("cognition.json", "COGNITION.md", "run.env")
 GENERATED_DOCUMENTS = {"COGNITION.md"}
 CHALLENGE_NAME_RE = re.compile(r"^[^\\\x00]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
@@ -61,8 +62,36 @@ def read_text_if_exists(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def state_dir(path: Path) -> Path:
+    return path / STATE_DIR_NAME
+
+
+def document_candidates(path: Path, document_name: str) -> list[Path]:
+    if document_name == "cognition.json":
+        return [state_dir(path) / "cognition.json", path / "cognition.json"]
+    if document_name == "COGNITION.md":
+        return [state_dir(path) / "COGNITION.md", path / "COGNITION.md"]
+    if document_name in {"run.env", ".pwnrun"}:
+        return [state_dir(path) / "run.env", state_dir(path) / ".pwnrun", path / ".pwnrun"]
+    return [path / document_name]
+
+
+def resolve_document_path(path: Path, document_name: str, *, for_write: bool = False) -> Path:
+    candidates = document_candidates(path, document_name)
+    if for_write and document_name in {"run.env", ".pwnrun"}:
+        return candidates[0]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def document_exists(path: Path, document_name: str) -> bool:
+    return any(candidate.exists() for candidate in document_candidates(path, document_name))
+
+
 def read_state_stage(path: Path) -> str:
-    cognition_path = path / "cognition.json"
+    cognition_path = resolve_document_path(path, "cognition.json")
     if cognition_path.exists():
         try:
             data = json.loads(cognition_path.read_text(encoding="utf-8"))
@@ -106,7 +135,7 @@ def normalize_challenge_type(value: str) -> str:
 def read_challenge_metadata(path: Path) -> dict[str, Any]:
     description_text = read_text_if_exists(path / "description.md")
     cognition: dict[str, Any] = {}
-    cognition_path = path / "cognition.json"
+    cognition_path = resolve_document_path(path, "cognition.json")
     if cognition_path.exists():
         try:
             parsed = json.loads(cognition_path.read_text(encoding="utf-8"))
@@ -460,7 +489,7 @@ def challenge_summary(path: Path) -> dict[str, Any]:
     state_stage = read_state_stage(path)
     solve_status = derive_solve_status(state_stage)
     metadata = read_challenge_metadata(path)
-    core_files = {name: (path / name).exists() for name in CORE_DOCUMENTS}
+    core_files = {name: document_exists(path, name) for name in CORE_DOCUMENTS}
     updated_at = isoformat_from_timestamp(path.stat().st_mtime)
     for artifact in artifacts:
         updated_at = max(updated_at, artifact["modified_at"])
@@ -477,7 +506,7 @@ def challenge_summary(path: Path) -> dict[str, Any]:
         "metadata": metadata,
         "challenge_type": metadata.get("challenge_type", ""),
         "tags": metadata.get("tags", []),
-        "initialized": (path / "cognition.json").exists() and (path / "COGNITION.md").exists(),
+        "initialized": document_exists(path, "cognition.json") and document_exists(path, "COGNITION.md"),
         "state_stage": state_stage,
         "solve_status": solve_status,
         "core_files": core_files,
@@ -496,7 +525,7 @@ def challenge_detail(name: str) -> dict[str, Any]:
     if not path.is_dir():
         raise ApiError(400, f"Challenge path is not a directory: {name}")
 
-    documents = {document: read_text_if_exists(path / document) for document in CORE_DOCUMENTS}
+    documents = {document: read_text_if_exists(resolve_document_path(path, document)) for document in CORE_DOCUMENTS}
     checkpoints = collect_checkpoints(path)
     return {
         "summary": challenge_summary(path),
@@ -512,7 +541,7 @@ def list_challenges() -> list[dict[str, Any]]:
         return []
 
     def is_challenge_dir(path: Path) -> bool:
-        return path.is_dir() and not path.name.startswith(".") and any((path / name).exists() for name in CORE_DOCUMENTS)
+        return path.is_dir() and not path.name.startswith(".") and any(document_exists(path, name) for name in CORE_DOCUMENTS)
 
     def is_supported_challenge_path(path: Path) -> bool:
         parts = path.relative_to(CHALLENGES_DIR).parts
@@ -654,12 +683,14 @@ class AmadeusHandler(SimpleHTTPRequestHandler):
 
                 if len(parts) == 4 and parts[3] == "document":
                     document_name = query.get("name", [""])[0]
+                    if document_name == ".pwnrun":
+                        document_name = "run.env"
                     if document_name not in CORE_DOCUMENTS:
                         raise ApiError(400, "Unsupported document.")
                     path = challenge_path(name)
                     if not path.exists():
                         raise ApiError(404, f"Challenge not found: {name}")
-                    document_path = path / document_name
+                    document_path = resolve_document_path(path, document_name, for_write=method == "PUT")
 
                     if method == "GET":
                         self.send_json(

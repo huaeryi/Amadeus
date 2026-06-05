@@ -24,7 +24,7 @@
 5. 运行 `{{root_name}}/bin/init_challenge.sh {{root_name}}/challenges/{{challenge_group_prefix}}<title>`；该步骤会在题目目录内初始化 git，并在首次初始化时创建 `[ckpt0 <题目名>]`
 6. 保存题面为 `description.md`，写清来源 URL、分类、标签、环境、附件信息和下载时间
 7. 下载附件到 challenge 目录，必要时解压；保留原始附件，避免覆盖同名重要文件
-8. 识别附件类型；如果是 pwn 题，尽量识别主二进制、libc、ld，并更新 `amds_state/.pwnrun`
+8. 识别附件类型；如果是 pwn 题，尽量识别主二进制、libc、ld，并更新 `amds_state/run.env`
 9. 把确认过的题目信息、文件 hash、附件类型写入 `amds_state/cognition.json.facts`，再渲染 `amds_state/COGNITION.md`
 10. 把当前状态、后续解题建议和开放问题写入 `amds_state/cognition.json.state`，再渲染 `amds_state/COGNITION.md`
 11. 需要保留的下载日志、识别输出或错误详情放进 `amds_state/evidence/`，并在 `amds_state/cognition.json` 中引用相对路径

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--group NAME] [--append TEXT] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
+usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--policy strict|aggressive|none] [--group NAME] [--append TEXT] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
@@ -43,6 +43,7 @@ examples:
   amds --workflow pwn newnote --append "远程地址是 http://node4.anna.nssctf.cn:21280/"
   amds guide --workflow pwn newnote
   amds --workflow pwn newnote --dry-run
+  amds --policy aggressive --workflow pwn newnote -- --search
   amds --workflow pwn newnote -- --search -m gpt-5.5
   amds --runner claude audit audit_target -- --model sonnet
   amds newnote
@@ -61,6 +62,7 @@ behavior:
   - exec mode accepts --workflow to force the solve workflow after fetch
   - CTF category is selected by --workflow, defaulting to pwn for solve mode and x402 for audit mode
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
+  - policy defaults to strict; --policy aggressive permits external writeup/exploit search with source tracking
   - supports workflow shortcuts: --pwn, --web, --crypto, --misc, --reverse, --x402
   - launches Codex by default, or Claude when --runner claude is set
   - compatible with macOS /bin/bash 3.2 and Linux bash; no GNU realpath/mapfile required
@@ -313,6 +315,7 @@ legacy_prompt_dir="${root_dir}/pts"
 print_prompt=0
 dry_run=0
 runner="${AMDS_RUNNER:-codex}"
+policy="${AMDS_POLICY:-strict}"
 mode="solve"
 display_mode="solve"
 workflow="pwn"
@@ -345,6 +348,24 @@ while [ $# -gt 0 ]; do
                     ;;
                 *)
                     die "unknown runner: $2"
+                    ;;
+            esac
+            shift 2
+            ;;
+        --policy)
+            [ $# -ge 2 ] || die "--policy requires strict, aggressive, or none"
+            case "$2" in
+                strict|default)
+                    policy="strict"
+                    ;;
+                aggressive)
+                    policy="aggressive"
+                    ;;
+                none|off)
+                    policy="none"
+                    ;;
+                *)
+                    die "unknown policy: $2"
                     ;;
             esac
             shift 2
@@ -546,6 +567,7 @@ case "$mode" in
         target_url="$target_input"
         fetch_cmd=("$0" --mode fetch "$target_url")
         fetch_cmd+=(--runner "$runner")
+        fetch_cmd+=(--policy "$policy")
         if [ -n "$challenge_group" ]; then
             fetch_cmd+=(--group "$challenge_group")
         fi
@@ -562,6 +584,7 @@ case "$mode" in
 
             printf 'workspace: %s\n' "$workspace_dir"
             printf 'mode: exec\n'
+            printf 'policy: %s\n' "$policy"
             printf 'url: %s\n' "$target_url"
             if [ -n "$challenge_group" ]; then
                 printf 'group: %s\n' "$challenge_group"
@@ -580,7 +603,7 @@ case "$mode" in
                 else
                     dry_solve_workflow="$(infer_workflow_from_challenge "$existing_challenge_dir")"
                 fi
-                dry_solve_cmd=("$0" --mode solve --workflow "$dry_solve_workflow" --runner "$runner")
+                dry_solve_cmd=("$0" --mode solve --workflow "$dry_solve_workflow" --runner "$runner" --policy "$policy")
                 if [ ${#append_lines[@]} -gt 0 ]; then
                     for line in "${append_lines[@]}"; do
                         dry_solve_cmd+=(--append "$line")
@@ -597,7 +620,7 @@ case "$mode" in
                 printf '\n'
             else
                 if [ "$workflow_explicit" = "1" ]; then
-                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then %q --mode solve --workflow %q --runner %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow" "$runner"
+                    printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then %q --mode solve --workflow %q --runner %q --policy %q <challenge_dir>\n' "$prompt_root" "$0" "$workflow" "$runner" "$policy"
                 else
                     printf 'solve_command: resolved after fetch by matching source URL under %s/challenges, then infer workflow from description.md/amds_state/cognition.json\n' "$prompt_root"
                 fi
@@ -614,7 +637,7 @@ case "$mode" in
             solve_workflow="$(infer_workflow_from_challenge "$challenge_dir")"
         fi
 
-        solve_cmd=("$0" --mode solve --workflow "$solve_workflow" --runner "$runner")
+        solve_cmd=("$0" --mode solve --workflow "$solve_workflow" --runner "$runner" --policy "$policy")
         if [ ${#append_lines[@]} -gt 0 ]; then
             for line in "${append_lines[@]}"; do
                 solve_cmd+=(--append "$line")
@@ -634,27 +657,58 @@ if [ "$mode" = "exec" ]; then
 fi
 
 if [ "$mode" = "pre" ]; then
+    policy_template_path=""
+    case "$policy" in
+        strict) policy_template_path="$(resolve_template "policy")" ;;
+        aggressive) policy_template_path="$(resolve_template "policy_aggressive")" ;;
+        none) ;;
+        *) die "unknown policy: $policy" ;;
+    esac
     state_docs_template_path="$(resolve_template "state_docs")"
     capabilities_template_path="$(resolve_template "capabilities")"
     checkpoint_template_path="$(resolve_template "checkpoint")"
     prompt=""
+    if [ -n "$policy_template_path" ]; then
+        join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    fi
     join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 elif { [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; } && [ "$display_mode" != "learn" ]; then
+    policy_template_path=""
+    case "$policy" in
+        strict) policy_template_path="$(resolve_template "policy")" ;;
+        aggressive) policy_template_path="$(resolve_template "policy_aggressive")" ;;
+        none) ;;
+        *) die "unknown policy: $policy" ;;
+    esac
     entry_template_path="$(resolve_template "$display_mode")"
     state_docs_template_path="$(resolve_template "state_docs")"
     capabilities_template_path="$(resolve_template "capabilities")"
     checkpoint_template_path="$(resolve_template "checkpoint")"
     prompt=""
+    if [ -n "$policy_template_path" ]; then
+        join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    fi
     join_prompt "$(render_template "$entry_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 else
-    prompt="$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    policy_template_path=""
+    case "$policy" in
+        strict) policy_template_path="$(resolve_template "policy")" ;;
+        aggressive) policy_template_path="$(resolve_template "policy_aggressive")" ;;
+        none) ;;
+        *) die "unknown policy: $policy" ;;
+    esac
+    prompt=""
+    if [ -n "$policy_template_path" ]; then
+        join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+    fi
+    join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 fi
 
 if [ ${#append_lines[@]} -gt 0 ]; then

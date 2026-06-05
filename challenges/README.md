@@ -14,7 +14,7 @@ Typical files inside a challenge directory:
 - `COGNITION.md`: generated human-readable view of cognition
 - `evidence/`: command output, debugger logs, screenshots, and script result artifacts
 - `cognition.json.metadata.tracked_files`: important files tracked by the workflow
-- `.pwnrun`: pwn run configuration for `bin/run_pwn.sh`
+- `run.env`: run configuration for `bin/run_pwn.sh`
 - `attempts/`: notes for failed or abandoned branches
 - `checkpoints/`: rollback snapshots created by `bin/checkpoint.sh`
 - `exp.py` or `solve.py`: final exploit or solver script

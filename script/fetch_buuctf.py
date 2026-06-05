@@ -388,7 +388,7 @@ def challenge_artifact_paths(challenge_dir: Path) -> list[Path]:
             "amds_state/COGNITION.md",
             "amds_state/cognition.json",
             "description.md",
-            "amds_state/.pwnrun",
+            "amds_state/run.env",
         }:
             continue
         paths.append(path)
@@ -407,23 +407,32 @@ def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def update_pwnrun(challenge_dir: Path, main_binary: Path | None) -> None:
+def run_config_path(challenge_dir: Path) -> Path:
+    for candidate in (
+        challenge_dir / "amds_state" / "run.env",
+        challenge_dir / "amds_state" / ".pwnrun",
+        challenge_dir / ".pwnrun",
+    ):
+        if candidate.exists():
+            return candidate
+    return challenge_dir / "amds_state" / "run.env"
+
+
+def update_run_config(challenge_dir: Path, main_binary: Path | None) -> None:
     if not main_binary:
         return
-    pwnrun = challenge_dir / "amds_state" / ".pwnrun"
-    if not pwnrun.exists() and (challenge_dir / ".pwnrun").exists():
-        pwnrun = challenge_dir / ".pwnrun"
-    if not pwnrun.exists():
+    run_config = run_config_path(challenge_dir)
+    if not run_config.exists():
         return
     main_rel = str(main_binary.relative_to(challenge_dir))
-    lines = pwnrun.read_text(encoding="utf-8").splitlines()
+    lines = run_config.read_text(encoding="utf-8").splitlines()
     new_lines = []
     for line in lines:
         if line.startswith("BIN="):
             new_lines.append(f"BIN={sh_quote(main_rel)}")
         else:
             new_lines.append(line)
-    pwnrun.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    run_config.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
 
 def maybe_extract(path: Path, challenge_dir: Path, overwrite: bool) -> list[Path]:
@@ -592,7 +601,7 @@ def challenge_metadata(
             "wp.md",
             "amds_state/cognition.json",
             "amds_state/COGNITION.md",
-            "amds_state/.pwnrun",
+            "amds_state/run.env",
         ],
         "fetch_status": fetch_status,
     }
@@ -817,7 +826,7 @@ def main() -> int:
     main_binary = choose_main_binary(challenge_dir)
     if main_binary:
         main_binary.chmod(main_binary.stat().st_mode | 0o111)
-    update_pwnrun(challenge_dir, main_binary)
+    update_run_config(challenge_dir, main_binary)
 
     fetch_status = "fetched" if not attachment_error else "partial"
     write_outputs(challenge_id, problem, source_url, challenge_dir, local_files, main_binary, attachment_error, args.overwrite or fresh_cognition, fetch_status)
