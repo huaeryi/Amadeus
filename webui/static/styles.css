@@ -97,6 +97,7 @@ textarea {
   display: grid;
   grid-template-columns: 330px minmax(0, 1fr);
   gap: 12px;
+  height: 100vh;
   min-height: 100vh;
   padding: 12px;
 }
@@ -110,6 +111,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
 }
 
 .brand,
@@ -186,6 +188,7 @@ textarea {
 .grow {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .panel-heading,
@@ -286,6 +289,7 @@ textarea {
 }
 
 .challenge-list {
+  flex: 1;
   overflow: auto;
   padding-right: 4px;
 }

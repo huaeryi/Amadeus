@@ -26,6 +26,21 @@ PWN_SCRIPTS_DIR = ROOT_DIR / "scripts" / "pwn"
 STATE_DIR_NAME = "amds_state"
 CORE_DOCUMENTS = ("cognition.json", "COGNITION.md", "run.env")
 GENERATED_DOCUMENTS = {"COGNITION.md"}
+CHALLENGE_CATEGORY_DIRS = {
+    "ai",
+    "blockchain",
+    "crypto",
+    "forensic",
+    "forensics",
+    "misc",
+    "mobile",
+    "osint",
+    "pwn",
+    "re",
+    "rev",
+    "reverse",
+    "web",
+}
 CHALLENGE_NAME_RE = re.compile(r"^[^\\\x00]+$")
 TEXT_PREVIEW_LIMIT = 256 * 1024
 BINARY_PREVIEW_LIMIT = 4096
@@ -542,25 +557,21 @@ def list_challenges() -> list[dict[str, Any]]:
     if not CHALLENGES_DIR.exists():
         return []
 
-    def is_challenge_dir(path: Path) -> bool:
-        return path.is_dir() and not path.name.startswith(".") and any(document_exists(path, name) for name in CORE_DOCUMENTS)
-
     def is_supported_challenge_path(path: Path) -> bool:
         parts = path.relative_to(CHALLENGES_DIR).parts
         if any(part.startswith(".") for part in parts):
             return False
         if len(parts) == 2:
-            return True
+            return parts[1].lower() not in CHALLENGE_CATEGORY_DIRS
         if len(parts) == 3:
-            return parts[1].lower() in {"reverse", "pwn", "web", "misc", "crypto"}
+            return parts[1].lower() in CHALLENGE_CATEGORY_DIRS
         return False
 
     challenges: list[dict[str, Any]] = []
     for entry in sorted(CHALLENGES_DIR.rglob("*"), key=lambda item: str(item.relative_to(CHALLENGES_DIR)).lower()):
         if not entry.is_dir() or not is_supported_challenge_path(entry):
             continue
-        if is_challenge_dir(entry):
-            challenges.append(challenge_summary(entry))
+        challenges.append(challenge_summary(entry))
     return challenges
 
 
