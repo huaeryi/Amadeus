@@ -7,11 +7,9 @@
     <link rel="icon" type="image/png" href="/imgs/amds-favicon.png?v=amds-logo-3" />
     <link rel="shortcut icon" type="image/png" href="/favicon.ico?v=amds-logo-3" />
     <link rel="apple-touch-icon" href="/imgs/amds-favicon.png?v=amds-logo-3" />
-    <link rel="stylesheet" href="/styles.css?v=amds-logo-1" />
+    <link rel="stylesheet" href="/styles.css?v=compact-theme-1" />
   </head>
   <body>
-    <div class="background-glow background-glow-a"></div>
-    <div class="background-glow background-glow-b"></div>
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
@@ -21,21 +19,10 @@
               <p class="eyebrow">CTF Toolbox</p>
               <h1>Amadeus</h1>
             </div>
+            <button id="theme-toggle" class="button ghost theme-toggle" type="button" aria-label="Toggle color theme">Dark</button>
           </div>
-          <p class="brand-copy">Challenge Console</p>
+          <p id="server-label" class="brand-copy">Local</p>
         </div>
-
-        <form id="create-form" class="panel stack">
-          <div class="panel-heading">
-            <h2>New Challenge</h2>
-            <span class="badge">init on create</span>
-          </div>
-          <label class="field">
-            <span>Path</span>
-            <input id="create-name" name="name" type="text" placeholder="defcon/baby_heap" autocomplete="off" />
-          </label>
-          <button class="button primary" type="submit">Create</button>
-        </form>
 
         <section class="panel stack grow">
           <div class="panel-heading">
@@ -51,21 +38,11 @@
       </aside>
 
       <main class="main">
-        <header class="hero">
-          <div>
-            <p class="eyebrow">Port 9999</p>
-            <h2>Challenge Management First</h2>
-          </div>
-          <p class="hero-copy">
-            Create challenges, initialize solve state, edit core docs, and manage checkpoints from one place.
-          </p>
-        </header>
-
         <section id="detail" class="detail"></section>
       </main>
     </div>
 
     <div id="toast-layer" class="toast-layer" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=event-collapse-3"></script>
+    <script type="module" src="/app.js?v=compact-theme-1"></script>
   </body>
   </html>

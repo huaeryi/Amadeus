@@ -656,58 +656,36 @@ if [ "$mode" = "exec" ]; then
     exit 0
 fi
 
+policy_template_path=""
+case "$policy" in
+    strict) policy_template_path="$(resolve_template "policy")" ;;
+    aggressive) policy_template_path="$(resolve_template "policy_aggressive")" ;;
+    none) ;;
+    *) die "unknown policy: $policy" ;;
+esac
+
 if [ "$mode" = "pre" ]; then
-    policy_template_path=""
-    case "$policy" in
-        strict) policy_template_path="$(resolve_template "policy")" ;;
-        aggressive) policy_template_path="$(resolve_template "policy_aggressive")" ;;
-        none) ;;
-        *) die "unknown policy: $policy" ;;
-    esac
     state_docs_template_path="$(resolve_template "state_docs")"
     capabilities_template_path="$(resolve_template "capabilities")"
     checkpoint_template_path="$(resolve_template "checkpoint")"
     prompt=""
-    if [ -n "$policy_template_path" ]; then
-        join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
-    fi
     join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 elif { [ "$mode" = "solve" ] || [ "$mode" = "audit" ]; } && [ "$display_mode" != "learn" ]; then
-    policy_template_path=""
-    case "$policy" in
-        strict) policy_template_path="$(resolve_template "policy")" ;;
-        aggressive) policy_template_path="$(resolve_template "policy_aggressive")" ;;
-        none) ;;
-        *) die "unknown policy: $policy" ;;
-    esac
     entry_template_path="$(resolve_template "$display_mode")"
     state_docs_template_path="$(resolve_template "state_docs")"
     capabilities_template_path="$(resolve_template "capabilities")"
     checkpoint_template_path="$(resolve_template "checkpoint")"
     prompt=""
-    if [ -n "$policy_template_path" ]; then
-        join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
-    fi
     join_prompt "$(render_template "$entry_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$state_docs_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$capabilities_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
     join_prompt "$(render_template "$checkpoint_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 else
-    policy_template_path=""
-    case "$policy" in
-        strict) policy_template_path="$(resolve_template "policy")" ;;
-        aggressive) policy_template_path="$(resolve_template "policy_aggressive")" ;;
-        none) ;;
-        *) die "unknown policy: $policy" ;;
-    esac
     prompt=""
-    if [ -n "$policy_template_path" ]; then
-        join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
-    fi
     join_prompt "$(render_template "$template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 fi
 
@@ -715,6 +693,10 @@ if [ ${#append_lines[@]} -gt 0 ]; then
     for line in "${append_lines[@]}"; do
         append_prompt_line "$line"
     done
+fi
+
+if [ -n "$policy_template_path" ]; then
+    join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 fi
 
 if [ "$print_prompt" = "1" ] && [ "$dry_run" = "0" ]; then

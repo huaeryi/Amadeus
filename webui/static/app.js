@@ -3,7 +3,6 @@ const state = {
   filter: "",
   selected: null,
   detail: null,
-  runInfo: null,
   filePreview: null,
   activeFilePath: null,
   filePreviewLoading: false,
@@ -11,17 +10,27 @@ const state = {
   browserEntries: [],
   browserLoading: false,
   collapsedEvents: new Set(),
+  theme: "light",
 };
 
 const elements = {
-  createForm: document.querySelector("#create-form"),
-  createName: document.querySelector("#create-name"),
   refreshList: document.querySelector("#refresh-list"),
   filterInput: document.querySelector("#challenge-filter"),
   challengeList: document.querySelector("#challenge-list"),
   detail: document.querySelector("#detail"),
   toastLayer: document.querySelector("#toast-layer"),
+  themeToggle: document.querySelector("#theme-toggle"),
+  serverLabel: document.querySelector("#server-label"),
 };
+
+const THEME_STORAGE_KEY = "amadeus-theme";
+const COMMON_FILE_SHORTCUTS = [
+  { label: "cognition", path: "amds_state/cognition.json" },
+  { label: "COGNITION", path: "amds_state/COGNITION.md" },
+  { label: "run.env", path: "amds_state/run.env" },
+  { label: "exp.py", path: "exp.py" },
+  { label: "wp.md", path: "wp.md" },
+];
 
 function escapeHtml(value) {
   return value
@@ -61,11 +70,42 @@ function showToast(message, tone = "info") {
   }, 2600);
 }
 
-function setBusy(target, busy) {
-  if (!target) {
+function preferredTheme() {
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (stored === "light" || stored === "dark") {
+    return stored;
+  }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  state.theme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = state.theme;
+  if (elements.themeToggle) {
+    elements.themeToggle.textContent = state.theme === "dark" ? "Light" : "Dark";
+    elements.themeToggle.setAttribute("aria-label", `Switch to ${state.theme === "dark" ? "light" : "dark"} theme`);
+  }
+}
+
+function toggleTheme() {
+  const nextTheme = state.theme === "dark" ? "light" : "dark";
+  window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  applyTheme(nextTheme);
+}
+
+function syncSystemTheme(event) {
+  if (window.localStorage.getItem(THEME_STORAGE_KEY)) {
     return;
   }
-  target.disabled = busy;
+  applyTheme(event.matches ? "dark" : "light");
+}
+
+function renderServerLabel() {
+  if (!elements.serverLabel) {
+    return;
+  }
+  const port = window.location.port || (window.location.protocol === "https:" ? "443" : "80");
+  elements.serverLabel.textContent = `${window.location.hostname}:${port}`;
 }
 
 function previewablePaths(detail) {
@@ -97,6 +137,31 @@ function preferredPreviewPath(detail) {
   }
 
   return paths[0];
+}
+
+function shortcutAvailable(path) {
+  if (!state.detail) {
+    return false;
+  }
+  return state.detail.artifacts.some((artifact) => artifact.path === path);
+}
+
+function renderFileShortcuts() {
+  if (!state.detail) {
+    return "";
+  }
+
+  const buttons = COMMON_FILE_SHORTCUTS.map((shortcut) => {
+    const available = shortcutAvailable(shortcut.path);
+    const active = shortcut.path === state.activeFilePath;
+    return `
+      <button class="quick-file ${active ? "active" : ""}" data-quick-file="${escapeHtml(shortcut.path)}" type="button" ${available ? "" : "disabled"}>
+        ${escapeHtml(shortcut.label)}
+      </button>
+    `;
+  }).join("");
+
+  return `<div class="quick-files">${buttons}</div>`;
 }
 
 function buildBrowserBreadcrumbs(path) {
@@ -239,122 +304,6 @@ function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
   return { nodes, edges };
 }
 
-function renderCheckpointGraph(checkpointGraph, checkpoints) {
-  const { nodes, edges } = normalizeCheckpointGraph(checkpointGraph, checkpoints);
-  if (!nodes.length) {
-    return `
-      <div class="checkpoint-graph">
-        <div class="checkpoint-graph-empty">No checkpoints</div>
-      </div>
-    `;
-  }
-
-  const sorted = nodes;
-  const childMap = new Map();
-  for (const edge of edges) {
-    if (!childMap.has(edge.parent)) {
-      childMap.set(edge.parent, []);
-    }
-    childMap.get(edge.parent).push(edge.child);
-  }
-
-  const columnById = new Map();
-  let nextColumn = 0;
-  for (const node of sorted) {
-    if (columnById.has(node.id)) {
-      continue;
-    }
-    if (!node.parent_id || !columnById.has(node.parent_id)) {
-      columnById.set(node.id, nextColumn++);
-      continue;
-    }
-
-    const siblings = childMap.get(node.parent_id) || [];
-    const siblingIndex = siblings.indexOf(node.id);
-    if (siblingIndex <= 0) {
-      columnById.set(node.id, columnById.get(node.parent_id));
-    } else {
-      columnById.set(node.id, nextColumn++);
-    }
-  }
-
-  const rowById = new Map(sorted.map((node, index) => [node.id, index]));
-  const maxColumn = Math.max(...columnById.values(), 0);
-  const xStep = 110;
-  const yStep = 72;
-  const left = 24;
-  const top = 22;
-  const width = left + maxColumn * xStep + 320;
-  const height = top + Math.max(0, sorted.length - 1) * yStep + 42;
-  const nodeRadius = 8;
-  const edgeGap = 8;
-
-  const edgeMarkup = edges
-    .filter((edge) => rowById.has(edge.parent) && rowById.has(edge.child))
-    .map((edge) => {
-      const parentX = left + columnById.get(edge.parent) * xStep;
-      const parentY = top + rowById.get(edge.parent) * yStep;
-      const childX = left + columnById.get(edge.child) * xStep;
-      const childY = top + rowById.get(edge.child) * yStep;
-      const midY = parentY + (childY - parentY) / 2;
-      const deltaX = childX - parentX;
-      const deltaY = childY - parentY;
-
-      if (deltaX === 0) {
-        const directionY = Math.sign(deltaY) || 1;
-        const endY = childY - directionY * (nodeRadius + edgeGap);
-        return `<path class="checkpoint-svg-edge" marker-end="url(#checkpoint-arrow)" d="M ${parentX} ${parentY} L ${parentX} ${midY} L ${childX} ${endY}" />`;
-      }
-
-      const directionX = Math.sign(deltaX) || 1;
-      const endX = childX - directionX * (nodeRadius + edgeGap);
-      return `<path class="checkpoint-svg-edge" marker-end="url(#checkpoint-arrow)" d="M ${parentX} ${parentY} L ${parentX} ${midY} L ${endX} ${midY} L ${endX} ${childY}" />`;
-    })
-    .join("");
-
-  const nodeMarkup = sorted
-    .map((node) => {
-      const x = left + columnById.get(node.id) * xStep;
-      const y = top + rowById.get(node.id) * yStep;
-      const classes = [
-        "checkpoint-svg-node",
-        node.is_head ? "head" : "",
-        node.is_latest ? "latest" : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-      const branchText = (childMap.get(node.id) || []).length > 1 ? "branch" : "";
-      const badges = [node.is_head ? "head" : "", node.is_latest ? "latest" : "", branchText]
-        .filter(Boolean)
-        .join(" · ");
-      const created = node.created_at ? node.created_at.slice(5, 16).replace("T", " ") : "";
-      const commit = node.short_id || node.id.slice(0, 7);
-
-      return `
-        <g class="${classes}" transform="translate(${x}, ${y})">
-          <circle class="checkpoint-svg-dot" r="8"></circle>
-          <text class="checkpoint-svg-title" x="18" y="-2">${escapeHtml(node.name)}</text>
-          <text class="checkpoint-svg-meta" x="18" y="14">${escapeHtml(commit)} · ${escapeHtml(created)}${badges ? ` · ${escapeHtml(badges)}` : ""}</text>
-        </g>
-      `;
-    })
-    .join("");
-
-  return `
-    <div class="checkpoint-graph">
-      <svg class="checkpoint-graph-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
-        <defs>
-          <marker id="checkpoint-arrow" markerWidth="5" markerHeight="5" refX="4.4" refY="2.5" orient="auto" markerUnits="strokeWidth">
-            <path d="M0,0 L5,2.5 L0,5 z" fill="rgba(19, 33, 47, 0.36)"></path>
-          </marker>
-        </defs>
-        ${edgeMarkup}
-        ${nodeMarkup}
-      </svg>
-    </div>
-  `;
-}
-
 function filteredChallenges() {
   const needle = state.filter.trim().toLowerCase();
   if (!needle) {
@@ -417,7 +366,7 @@ function renderChallengeList() {
       <div class="empty-state">
         <div>
           <h3>No matches</h3>
-          <p class="muted">Create a new challenge or clear the filter.</p>
+          <p class="muted">Clear the filter or refresh the challenge list.</p>
         </div>
       </div>
     `;
@@ -504,57 +453,8 @@ function renderEmptyDetail() {
       <div>
         <p class="eyebrow">Ready</p>
         <h3>Select a challenge</h3>
-        <p class="muted">The right pane will show file previews, checkpoints, runtime info, and filesystem state.</p>
+        <p class="muted">The right pane will show file previews, checkpoints, and filesystem state.</p>
       </div>
-    </section>
-  `;
-}
-
-function renderRunInfoCard() {
-  const runInfo = state.runInfo;
-  if (!runInfo) {
-    return `
-      <section class="detail-card stack">
-        <div class="detail-header">
-          <h3>Run Info</h3>
-          <span class="badge">loading</span>
-        </div>
-        <p class="muted">Resolving binary, libc, ld, and host/port information...</p>
-      </section>
-    `;
-  }
-
-  if (!runInfo.ok) {
-    return `
-      <section class="detail-card stack">
-        <div class="detail-header">
-          <h3>Run Info</h3>
-          <span class="chip danger">script error</span>
-        </div>
-        <p class="muted">run_pwn.sh info did not resolve cleanly.</p>
-        <pre class="file-preview">${escapeHtml((runInfo.stderr || runInfo.stdout || "No output").trim())}</pre>
-      </section>
-    `;
-  }
-
-  const fields = Object.entries(runInfo.info)
-    .map(
-      ([key, value]) => `
-        <div class="runtime-field">
-          <span>${escapeHtml(key)}</span>
-          <strong>${escapeHtml(value || "-")}</strong>
-        </div>
-      `
-    )
-    .join("");
-
-  return `
-    <section class="detail-card stack">
-      <div class="detail-header">
-        <h3>Run Info</h3>
-        <span class="chip ok">resolved</span>
-      </div>
-      <div class="runtime-grid">${fields || `<p class="muted">No run metadata.</p>`}</div>
     </section>
   `;
 }
@@ -566,7 +466,7 @@ function renderFilePreviewCard() {
 
   if (state.filePreviewLoading) {
     return `
-      <section class="detail-card stack">
+      <section class="detail-card stack file-preview-card">
         <div class="detail-header">
           <h3>File Preview</h3>
           <span class="badge">loading</span>
@@ -578,7 +478,7 @@ function renderFilePreviewCard() {
 
   if (!state.filePreview) {
     return `
-      <section class="detail-card stack">
+      <section class="detail-card stack file-preview-card">
         <div class="detail-header">
           <h3>File Preview</h3>
           <span class="chip">idle</span>
@@ -596,7 +496,7 @@ function renderFilePreviewCard() {
       : `<p class="muted">Directory is empty.</p>`;
 
     return `
-      <section class="detail-card stack">
+      <section class="detail-card stack file-preview-card">
         <div class="detail-header">
           <div>
             <h3>File Preview</h3>
@@ -607,7 +507,7 @@ function renderFilePreviewCard() {
         <div class="preview-meta">
           <span class="chip">${escapeHtml(state.filePreview.modified_at)}</span>
         </div>
-        <div class="stack">${entries}</div>
+        <div class="file-preview-list">${entries}</div>
       </section>
     `;
   }
@@ -618,7 +518,7 @@ function renderFilePreviewCard() {
     : "";
 
   return `
-    <section class="detail-card stack">
+    <section class="detail-card stack file-preview-card">
       <div class="detail-header">
         <div>
           <h3>File Preview</h3>
@@ -645,7 +545,7 @@ function renderFilesBrowserCard() {
 
   if (state.browserLoading) {
     return `
-      <section class="detail-card stack">
+      <section class="detail-card stack files-browser-card">
         <div class="detail-header">
           <h3>Files</h3>
           <span class="badge">loading</span>
@@ -698,7 +598,7 @@ function renderFilesBrowserCard() {
     : `<p class="muted">Directory is empty.</p>`;
 
   return `
-    <section class="detail-card stack">
+    <section class="detail-card stack files-browser-card">
       <div class="detail-header">
         <h3>Files</h3>
         <div class="split-actions">
@@ -718,7 +618,7 @@ function renderDetail() {
     return;
   }
 
-  const { summary, checkpoints, checkpoint_graph, artifacts } = state.detail;
+  const { summary, checkpoints, checkpoint_graph } = state.detail;
   const checkpointView = normalizeCheckpointGraph(checkpoint_graph, checkpoints);
   const previewableCount = previewablePaths(state.detail).length;
   const statusTone = summary.solve_status === "solved" ? "ok" : "warn";
@@ -737,8 +637,8 @@ function renderDetail() {
                 </div>
               </div>
               <div class="checkpoint-actions">
+                ${checkpoint.is_head ? `<span class="chip ok">head</span>` : ""}
                 ${checkpoint.is_latest ? `<span class="chip ok">latest</span>` : ""}
-                <button class="button ghost checkpoint-restore" data-checkpoint="${escapeHtml(checkpoint.id)}" type="button">Restore Files</button>
               </div>
             </div>
           `
@@ -758,10 +658,7 @@ function renderDetail() {
           <span class="chip type">${escapeHtml(challengeType)}</span>
           <span class="chip ${statusTone}">${escapeHtml(summary.solve_status)}</span>
         </div>
-        <div class="detail-actions split-actions">
-          <button id="init-challenge" class="button secondary" type="button">Init Files</button>
-          <button id="refresh-detail" class="button ghost" type="button">Refresh</button>
-        </div>
+        <button id="refresh-detail" class="button ghost" type="button">Refresh</button>
       </div>
       <div class="stats-grid">
         <div class="stat"><span class="meta">Checkpoints</span><strong>${summary.checkpoint_count}</strong></div>
@@ -769,61 +666,31 @@ function renderDetail() {
         <div class="stat"><span class="meta">Artifacts</span><strong>${summary.artifact_count}</strong></div>
         <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>
       </div>
+      ${renderFileShortcuts()}
     </section>
 
     <div class="detail-grid">
-      ${renderFilePreviewCard()}
-      ${renderFilesBrowserCard()}
-    </div>
-
-    <div class="detail-grid">
-      <div class="stack">
-        ${renderRunInfoCard()}
-
-        <section class="detail-card checkpoint-control stack">
+      <div class="stack content-column">
+        ${renderFilePreviewCard()}
+        <section class="detail-card saved-commits-card stack">
           <div class="detail-header">
-            <div>
-              <p class="eyebrow">Git Timeline</p>
-              <h3>Checkpoint Control</h3>
-            </div>
+            <h3>Saved commits</h3>
             <div class="checkpoint-summary">
               <span class="chip">${checkpointView.nodes.length} saved</span>
               <span class="chip ok">${summary.checkpoint_count} commits</span>
             </div>
           </div>
-          ${renderCheckpointGraph(checkpoint_graph, checkpoints)}
-          <form id="checkpoint-form" class="checkpoint-create">
-            <label class="field checkpoint-field">
-              <span>Checkpoint name</span>
-              <input id="checkpoint-name" type="text" placeholder="primitive-confirmed" autocomplete="off" />
-            </label>
-            <button class="button primary" type="submit">Create Checkpoint</button>
-          </form>
-          <div class="checkpoint-list-header">
-            <span class="meta">Saved commits</span>
-            <span class="meta">Restore affects tracked files only</span>
-          </div>
           <div class="checkpoints">${checkpointMarkup}</div>
         </section>
       </div>
-      <section class="detail-card stack">
-        <div class="detail-header">
-          <h3>Workspace</h3>
-          <span class="chip">${summary.artifact_count} root entries</span>
-        </div>
-        <div class="stats-grid">
-          <div class="stat"><span class="meta">Root Entries</span><strong>${summary.artifact_count}</strong></div>
-          <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>
-        </div>
-        <p class="muted">Use the file browser above to inspect nested directories; checkpoints are stored as git commits in the challenge directory.</p>
-      </section>
+      <div class="side-column">
+        ${renderFilesBrowserCard()}
+      </div>
     </div>
   `;
-  document.querySelector("#init-challenge")?.addEventListener("click", initializeSelectedChallenge);
   document.querySelector("#refresh-detail")?.addEventListener("click", () => loadChallengeDetail(state.selected));
-  document.querySelector("#checkpoint-form")?.addEventListener("submit", createCheckpoint);
-  document.querySelectorAll(".checkpoint-restore").forEach((button) => {
-    button.addEventListener("click", () => restoreCheckpoint(button.dataset.checkpoint));
+  document.querySelectorAll(".quick-file").forEach((button) => {
+    button.addEventListener("click", () => loadFilePreview(button.dataset.quickFile));
   });
   document.querySelectorAll(".browser-file").forEach((button) => {
     button.addEventListener("click", () => loadFilePreview(button.dataset.path));
@@ -865,7 +732,6 @@ async function loadChallenges({ preserveSelection = true } = {}) {
     await loadChallengeDetail(state.selected);
   } else {
     state.detail = null;
-    state.runInfo = null;
     renderDetail();
   }
 }
@@ -875,7 +741,6 @@ async function loadChallengeDetail(name) {
     return;
   }
   state.selected = name;
-  state.runInfo = null;
   state.filePreview = null;
   state.activeFilePath = null;
   state.filePreviewLoading = false;
@@ -899,19 +764,6 @@ async function loadChallengeDetail(name) {
       console.error(error);
     });
   }
-
-  loadRunInfo(name).catch((error) => {
-    console.error(error);
-  });
-}
-
-async function loadRunInfo(name) {
-  const payload = await request(`/api/challenges/${encodeURIComponent(name)}/run-info`);
-  if (state.selected !== name) {
-    return;
-  }
-  state.runInfo = payload.run_info;
-  renderDetail();
 }
 
 async function loadFilePreview(path) {
@@ -978,117 +830,8 @@ async function selectChallenge(name) {
   }
 }
 
-async function createChallenge(event) {
-  event.preventDefault();
-  const name = elements.createName.value.trim();
-  if (!name) {
-    showToast("Challenge path is required.", "error");
-    return;
-  }
-  if (name.split("/").filter(Boolean).length !== 2) {
-    showToast("Use a grouped path like defcon/baby_heap.", "error");
-    return;
-  }
-
-  const button = elements.createForm.querySelector("button[type=submit]");
-  setBusy(button, true);
-  try {
-    await request("/api/challenges", {
-      method: "POST",
-      body: JSON.stringify({ name, initialize: true }),
-    });
-    elements.createName.value = "";
-    showToast(`Created ${name}`, "success");
-    await loadChallenges({ preserveSelection: false });
-    await loadChallengeDetail(name);
-  } catch (error) {
-    showToast(error.message, "error");
-  } finally {
-    setBusy(button, false);
-  }
-}
-
-async function initializeSelectedChallenge() {
-  if (!state.selected) {
-    return;
-  }
-  const button = document.querySelector("#init-challenge");
-  setBusy(button, true);
-  try {
-    const payload = await request(`/api/challenges/${encodeURIComponent(state.selected)}/init`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    state.detail = payload.challenge;
-    showToast(`Initialized ${state.selected}`, "success");
-    await loadChallenges();
-    renderDetail();
-    await loadRunInfo(state.selected);
-  } catch (error) {
-    showToast(error.message, "error");
-  } finally {
-    setBusy(button, false);
-  }
-}
-
-async function createCheckpoint(event) {
-  event.preventDefault();
-  if (!state.selected) {
-    return;
-  }
-
-  const input = document.querySelector("#checkpoint-name");
-  const name = input?.value.trim();
-  if (!name) {
-    showToast("Checkpoint name is required.", "error");
-    return;
-  }
-
-  const button = event.currentTarget.querySelector("button[type=submit]");
-  setBusy(button, true);
-  try {
-    const payload = await request(`/api/challenges/${encodeURIComponent(state.selected)}/checkpoints`, {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    });
-    state.detail = payload.challenge;
-    input.value = "";
-    showToast(`Checkpoint ${name} created`, "success");
-    await loadChallenges();
-    renderDetail();
-  } catch (error) {
-    showToast(error.message, "error");
-  } finally {
-    setBusy(button, false);
-  }
-}
-
-async function restoreCheckpoint(checkpoint) {
-  if (!state.selected || !checkpoint) {
-    return;
-  }
-  const confirmed = window.confirm(`Restore tracked files from git checkpoint ${checkpoint.slice(0, 12)}?`);
-  if (!confirmed) {
-    return;
-  }
-
-  try {
-    const payload = await request(`/api/challenges/${encodeURIComponent(state.selected)}/restore`, {
-      method: "POST",
-      body: JSON.stringify({ checkpoint }),
-    });
-    state.detail = payload.challenge;
-    showToast(`Restored ${checkpoint}`, "success");
-    await loadChallenges();
-    renderDetail();
-    await loadRunInfo(state.selected);
-  } catch (error) {
-    showToast(error.message, "error");
-  }
-}
-
 function bindEvents() {
-  elements.createForm.addEventListener("submit", createChallenge);
+  elements.themeToggle?.addEventListener("click", toggleTheme);
   elements.refreshList.addEventListener("click", () => {
     loadChallenges().catch((error) => showToast(error.message, "error"));
   });
@@ -1099,6 +842,10 @@ function bindEvents() {
 }
 
 async function bootstrap() {
+  applyTheme(preferredTheme());
+  renderServerLabel();
+  const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+  systemTheme?.addEventListener("change", syncSystemTheme);
   bindEvents();
   renderEmptyDetail();
   try {

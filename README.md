@@ -138,7 +138,6 @@ Amadeus 的 prompts 会引用 Codex/agent skills；项目本身不负责安装 s
 | `ctf-misc` | misc 主流程，覆盖编码、取证、流量、音频、图片、jail、z3 等。 |
 | `ctf-ai-ml` | AI/ML 类 CTF，覆盖模型攻击、对抗样本、LLM/prompt 题等。 |
 | `ctf-writeup` | 解完后整理 `wp.md` / `wp_cn.md`。 |
-| `exploit-chain-planning` | 复杂利用链拆解、证据门槛和分支规划。 |
 
 推荐配置的 MCP / 调试服务：
 
@@ -158,8 +157,6 @@ MCP 服务需要在你的 Codex/Claude/其他客户端配置中单独启用；Am
 
 ```bash
 bin/amds fetch https://www.nssctf.cn/problem/131
-bin/amds fetch --group defcon https://www.nssctf.cn/problem/131
-bin/amds fetch 'https://buuoj.cn/challenges#刮开有奖'
 ```
 
 抓题后自动解题：
