@@ -3,7 +3,7 @@
 本次审计动作由 `audit` 命令触发；具体审计方法由 `--workflow {{workflow}}` 决定，流程见后续 `{{root_name}}/prompts/workflow/{{workflow}}.md`。不要把本任务当作 CTF solve 或拿 flag 流程；目标是找出可验证、可复现、可解释影响的 findings。
 
 通用入口要求：
-1. 在目标目录内工作
+1. 在目标目录内工作；当前工作目录应为 `{{challenge_path}}`，不要在 `{{root_name}}` 根目录创建、删除或修改目标产物
 2. 如果 `amds_state/cognition.json` 不存在，先运行 `{{root_name}}/scripts/challenge/init_challenge.sh {{challenge_path}}`
 3. 先读 `{{root_name}}/AGENTS.md`
 4. 再按 `{{root_name}}/prompts/workflow/{{workflow}}.md` 的审计约束推进

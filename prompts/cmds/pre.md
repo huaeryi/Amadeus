@@ -7,7 +7,7 @@
 - 如果存在 `{{root_name}}/prompts/learn/{{workflow}}_learning.md`，只读取其中和环境确认、常见坑有关的内容
 
 通用入口要求：
-1. 在题目目录内工作
+1. 在题目目录内工作；当前工作目录应为 `{{challenge_path}}`，不要在 `{{root_name}}` 根目录创建、删除或修改题目产物
 2. 如果 `amds_state/cognition.json` 不存在，先运行 `{{root_name}}/scripts/challenge/init_challenge.sh {{challenge_path}}`
 3. 识别题面、附件、源码、脚本、二进制、容器文件、远程地址和运行依赖
 4. 保存关键命令输出到 `{{challenge_path}}/amds_state/evidence/`，只把摘要和相对路径写入 `amds_state/cognition.json`

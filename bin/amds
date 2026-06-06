@@ -142,6 +142,34 @@ append_prompt_line() {
     prompt="${prompt}"$'\n'"$1"
 }
 
+prepend_prompt_context() {
+    local context
+    local reread_paths
+
+    context="AMDS runtime context:"$'\n'
+    context="${context}- Amadeus root: ${prompt_root}"$'\n'
+    context="${context}- Runner cwd: ${workspace_dir}"$'\n'
+    if [ -n "${challenge_prompt_path:-}" ]; then
+        context="${context}- Challenge path: ${challenge_prompt_path}"$'\n'
+    fi
+    context="${context}- Mode: ${display_mode}"$'\n'
+    context="${context}- Workflow: ${workflow}"$'\n'
+    context="${context}- If you need Amadeus instructions again later, reread the absolute paths under Amadeus root; do not assume the current working directory is the Amadeus root."$'\n'
+    reread_paths="${prompt_root}/AGENTS.md"
+    if [ -f "${prompt_cmd_dir}/${display_mode}.md" ]; then
+        reread_paths="${reread_paths}, ${prompt_root}/prompts/cmds/${display_mode}.md"
+    fi
+    if [ -f "${prompt_workflow_dir}/${workflow}.md" ]; then
+        reread_paths="${reread_paths}, ${prompt_root}/prompts/workflow/${workflow}.md"
+    fi
+    if [ -f "${prompt_cmd_dir}/checkpoint.md" ]; then
+        reread_paths="${reread_paths}, ${prompt_root}/prompts/cmds/checkpoint.md"
+    fi
+    context="${context}- Common reread paths: ${reread_paths}"
+
+    prompt="${context}"$'\n\n'"${prompt}"
+}
+
 resolve_challenge() {
     local input="$1"
     local candidate=""
@@ -306,7 +334,7 @@ workspace_parent="$(cd "${root_dir}/.." && pwd)"
 root_name="$(basename "${root_dir}")"
 workspace_dir="$root_dir"
 platform="$(detect_platform)"
-prompt_root="."
+prompt_root="$root_dir"
 prompt_dir="${root_dir}/prompts"
 prompt_cmd_dir="${prompt_dir}/cmds"
 prompt_workflow_dir="${prompt_dir}/workflow"
@@ -539,7 +567,14 @@ case "$mode" in
         fi
         challenge_dir="$(resolve_challenge "$target_input")"
         challenge_rel="${challenge_dir#${root_dir}/}"
-        challenge_prompt_path="${challenge_rel}"
+        challenge_prompt_path="${challenge_dir}"
+        if [ "$display_mode" = "learn" ] && [ "$dry_run" = "0" ] && [ "$print_prompt" = "0" ] && [ ! -d "$challenge_dir" ]; then
+            die "learn mode requires an existing challenge directory: $target_input"
+        fi
+        if [ "$display_mode" != "learn" ] && [ "$dry_run" = "0" ] && [ "$print_prompt" = "0" ]; then
+            mkdir -p "$challenge_dir"
+        fi
+        workspace_dir="$challenge_dir"
         if [ "$mode" = "pre" ]; then
             template_path="$(resolve_template "pre")"
         else
@@ -698,6 +733,8 @@ fi
 if [ -n "$policy_template_path" ]; then
     join_prompt "$(render_template "$policy_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
 fi
+
+prepend_prompt_context
 
 if [ "$print_prompt" = "1" ] && [ "$dry_run" = "0" ]; then
     printf '%s\n' "$prompt"

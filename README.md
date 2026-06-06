@@ -37,6 +37,8 @@ bin/amds pwn baby_tcache
 bin/amds --workflow pwn defcon/baby_tcache
 ```
 
+`solve`、`guide`、`pre`、`audit` 和 `learn` 会把底层 Codex/Claude 的工作目录切到解析后的题目目录，例如 `challenges/baby_tcache/`。Amadeus 根目录只作为工具箱使用，解题文件、临时脚本、日志和 checkpoint 都应留在对应 challenge 目录里。
+
 只做前处理：
 
 ```bash
@@ -126,7 +128,7 @@ AMDS_POLICY=aggressive bin/amds pwn baby_tcache -- --search
 
 Amadeus 的 prompts 会引用 Codex/agent skills；项目本身不负责安装 skills。Codex skills 的通用说明可参考 [OpenAI skills catalog](https://github.com/openai/skills) 和 [OpenAI skills help](https://help.openai.com/en/articles/20001066-skills-in-chatgpt)。
 
-推荐安装的 skills：
+推荐安装的 skills：https://github.com/ljagiello/ctf-skills
 
 | Skill | 用途 |
 | --- | --- |
@@ -204,6 +206,7 @@ challenges/baby_tcache/
 - `amds_state/cognition.json` 是机器可读状态源。
 - `amds_state/COGNITION.md` 由 `scripts/state/state_docs.py` 生成，不建议手写。
 - 命令输出、调试日志、截图和脚本结果放入 `amds_state/evidence/`。
+- Web UI 的 Evidence Jump 会读取 `amds_state/cognition.json` 中结构化 evidence 的 `artifact` 字段，并跳转预览对应文件。
 - 每个 challenge 目录是独立 git 仓库，checkpoint 就是该目录内的 commit。
 - pwn 运行配置优先读取 `amds_state/run.env`，同时兼容旧位置 `.pwnrun`。
 
@@ -229,6 +232,15 @@ scripts/challenge/checkpoint.sh libc-base-resolved challenges/baby_tcache
 scripts/challenge/restore.sh latest challenges/baby_tcache
 scripts/challenge/restore.sh <commit-hash> challenges/baby_tcache
 ```
+
+开启竞争路线分支：
+
+```bash
+scripts/challenge/branch.sh alt-heap-route challenges/baby_tcache
+scripts/challenge/branch.sh fsop-route <commit-hash> challenges/baby_tcache
+```
+
+branch 应体现路线而不是零散尝试；错误路线也可以保留，但小的 payload 微调、offset 猜测和临时观察直接写入 `amds_state/cognition.json` 即可。
 
 建议只在稳定里程碑创建 checkpoint，例如环境确认、漏洞确认、泄露可复现、地址解析完成、关键 primitive 可用、远程适配成功。
 

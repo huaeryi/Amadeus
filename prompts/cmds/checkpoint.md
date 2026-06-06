@@ -8,14 +8,19 @@ checkpoint 策略：
 - 创建 checkpoint 前先确认 `amds_state/cognition.json`、`exp.py`/`solve.py`/`wp.md` 等关键文件已写入当前结论，并运行 `{{root_name}}/scripts/state/state_docs.py render {{challenge_path}}`
 - 创建后用 `git -C {{challenge_path}} log --oneline -3` 快速确认提交
 - 路线失败或需要回退时，先查看 `git -C {{challenge_path}} log --oneline`；需要恢复文件时运行 `{{root_name}}/scripts/challenge/restore.sh <commit> {{challenge_path}}`
-- 需要保留失败路线时，先用 `git -C {{challenge_path}} switch -c <branch>` 开分支，再继续实验
+- 需要保留失败路线或开启竞争路线时，先用 `{{root_name}}/scripts/challenge/branch.sh <branch> [checkpoint_ref] {{challenge_path}}` 开分支，再继续实验；checkpoint 管稳定事实，branch 管路线隔离
+- branch 必须尽可能体现“路线”而不是零散尝试，例如 `ret2libc-route`、`fsop-route`、`tcache-poison-route`、`z3-model-route`；错误路线也允许保留，只要它验证了一条有复用价值的方向为什么可行或不可行
+- 小的 payload 微调、offset 猜测、单次 gadget 尝试、日志观察和临时假设不要开 branch；直接记录到 `amds_state/cognition.json` 的 facts/state/rejected_branches/open_questions，并在必要时渲染 `COGNITION.md`
 
 推荐节奏：
+- checkpoint 粒度由“可验证的稳定事实/原语边界”控制，不完全交给临场感觉；每个 checkpoint 都应能回答“回滚到这里已经稳定保留了什么能力或结论”
 - checkpoint尽量细致一些，但是也要有信息量
 - 通常 5 到 8 个 checkpoint：按 leak、write、oracle、约束、认证绕过、RCE、远程适配等具体事实拆分
 - 复杂 heap、seccomp、sandbox、复杂 web 链、复杂约束、多阶段 reverse/misc 或审计项目通常 8 到 12 个 checkpoint
 - 第一个稳定环境、入口/路由/函数图、第一条具体 oracle/约束模型、每个关键 leak、每个关键写入、每个 finding PoC 成功时创建 checkpoint
 - 高风险 pivot、破坏性 patch、heap metadata corruption、支付/状态机 race PoC、远程适配、路线切换前必须 checkpoint
+- 不要按每次脚本微调、gdb 单步、日志追加或未验证猜测创建 checkpoint；过细会增加状态渲染、git 历史浏览和回滚选择成本，降低解题速度
+- 如果连续两个 checkpoint 不能明显区分新增事实、能力、约束或风险边界，应合并到同一个 checkpoint 前的工作阶段
 
 完成前：
 - 最终 exploit/solve/finding 稳定后，checkpoint 名称必须描述最终结果，例如 `remote-shell-verified`、`flag-string-verified`、`finding-01-replay-report-ready`、`audit-no-findings-scope-documented`

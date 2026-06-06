@@ -22,6 +22,7 @@ Session 输入：
 - 如果 session id 是 `latest`，按 `{{session_path}}` 指向的最新 session 读取；否则按指定 session id 读取。
 - 如果指定 session 但目录不存在或没有 transcript，继续从 challenge 文件学习，并在 `REFLECTION.md` 和 `LEARNING_LOG.md` 的 `skipped` 中记录 session 不可用。
 - 不要把 session 中的完整对话复制进长期学习文件，只提炼最简单有效的过程规则。
+- 当前工作目录应为 `{{challenge_path}}`；除长期学习文件、学习日志和本题 `REFLECTION.md` 外，不要在 `{{root_name}}` 根目录创建、删除或修改文件。
 
 根据 `amds_state/cognition.json.metadata`、`description.md`、`amds_state/cognition.json.facts` 或 `amds_state/cognition.json.state` 判断题型，然后只修改对应文件：
 - pwn: `{{root_name}}/prompts/learn/pwn_learning.md`

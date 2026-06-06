@@ -417,7 +417,8 @@ textarea {
 .checkpoint-summary,
 .checkpoint-actions,
 .checkpoint-meta,
-.checkpoint-list-header {
+.checkpoint-list-header,
+.branch-overview {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -457,6 +458,26 @@ textarea {
   background: var(--type-muted);
   color: var(--type);
   text-transform: lowercase;
+}
+
+.chip.branch,
+.chip.branch-tip {
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+}
+
+.chip.branch.current,
+.chip.branch-tip {
+  border-color: var(--accent-line);
+  background: var(--accent-muted);
+  color: var(--accent-strong);
+}
+
+.chip.fork {
+  background: var(--warning-muted);
+  color: var(--warning);
 }
 
 .main {
@@ -502,6 +523,12 @@ textarea {
 .content-column,
 .side-column {
   min-width: 0;
+}
+
+.side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .file-preview-card {
@@ -580,10 +607,154 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 
+.evidence-jump-item {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.evidence-jump-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.evidence-jump-meta,
+.evidence-jump-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.evidence-jump-path {
+  width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  line-height: 1.35;
+}
+
+.evidence-jump-text {
+  color: var(--ink);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.evidence-jump-field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.evidence-jump-field span {
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.evidence-jump-field code {
+  display: block;
+  max-width: 100%;
+  padding: 6px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-strong);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .checkpoint-item {
   position: relative;
   align-items: flex-start;
   padding: 10px 0 10px 20px;
+}
+
+.checkpoint-item > div:first-child {
+  min-width: 0;
+}
+
+.branch-overview {
+  margin-top: -4px;
+}
+
+.checkpoint-dag {
+  overflow-x: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.checkpoint-dag svg {
+  display: block;
+  min-width: 100%;
+}
+
+.dag-edge {
+  fill: none;
+  stroke: var(--accent-line);
+  stroke-width: 2;
+}
+
+.dag-arrow {
+  fill: var(--accent);
+}
+
+.dag-node rect {
+  fill: var(--panel-strong);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.dag-node.head rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.dag-node.fork rect {
+  stroke: var(--warning);
+}
+
+.dag-node.tip rect {
+  fill: var(--surface-strong);
+}
+
+.dag-node-title,
+.dag-node-meta,
+.dag-node-flags {
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.dag-node-title {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dag-node-meta {
+  fill: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.dag-node-flags {
+  fill: var(--accent-strong);
+  font-family: var(--font-mono);
+  font-size: 9px;
 }
 
 .checkpoint-item::before {
@@ -643,6 +814,13 @@ textarea {
 
 .file-link:hover {
   text-decoration: underline;
+}
+
+.file-link:disabled {
+  cursor: not-allowed;
+  color: var(--ink-soft);
+  opacity: 0.58;
+  text-decoration: none;
 }
 
 .browser-breadcrumbs {

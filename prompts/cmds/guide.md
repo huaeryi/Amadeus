@@ -3,7 +3,7 @@
 本次 CTF 方向由 `--workflow {{workflow}}` 决定；具体题型流程见后续 `{{root_name}}/prompts/workflow/{{workflow}}.md` 内容。你既要推进题目，也要让我同步思考并看懂关键判断。
 
 通用入口要求：
-1. 在题目目录内工作
+1. 在题目目录内工作；当前工作目录应为 `{{challenge_path}}`，不要在 `{{root_name}}` 根目录创建、删除或修改题目产物
 2. 如果 `amds_state/cognition.json` 不存在，先运行 `{{root_name}}/scripts/challenge/init_challenge.sh {{challenge_path}}`
 3. 先读 `{{root_name}}/AGENTS.md`
 4. 再按 `{{root_name}}/prompts/workflow/{{workflow}}.md` 的题型约束推进

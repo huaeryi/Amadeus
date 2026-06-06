@@ -179,6 +179,13 @@ function buildBrowserBreadcrumbs(path) {
   return crumbs;
 }
 
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
 function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
   const checkpointById = new Map((checkpoints || []).map((checkpoint) => [checkpoint.id, checkpoint]));
   const graphNodes = Array.isArray(checkpointGraph?.nodes) ? checkpointGraph.nodes : [];
@@ -202,6 +209,7 @@ function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
       node.parent_id = String(rawNode?.parent_id || node.parent_id || checkpoint.parent_id || "").trim() || null;
       node.is_latest = node.is_latest || Boolean(checkpoint.is_latest);
       node.is_head = node.is_head || Boolean(checkpoint.is_head);
+      node.branch_tips = Array.from(new Set([...node.branch_tips, ...normalizeStringArray(rawNode?.branch_tips), ...normalizeStringArray(checkpoint.branch_tips)]));
       return;
     }
 
@@ -214,6 +222,7 @@ function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
       parent_id: String(rawNode?.parent_id || checkpoint.parent_id || "").trim() || null,
       is_latest: Boolean(checkpoint.is_latest),
       is_head: Boolean(checkpoint.is_head),
+      branch_tips: Array.from(new Set([...normalizeStringArray(rawNode?.branch_tips), ...normalizeStringArray(checkpoint.branch_tips)])),
     });
     nodeOrder.push(id);
   };
@@ -301,7 +310,186 @@ function normalizeCheckpointGraph(checkpointGraph, checkpoints) {
   }
 
   const nodes = orderedIds.map((id) => nodeById.get(id)).filter(Boolean);
+  for (const node of nodes) {
+    node.child_count = childrenByParent.get(node.id)?.length || 0;
+    node.is_fork = node.child_count > 1;
+  }
   return { nodes, edges };
+}
+
+function renderBranchOverview(branches) {
+  if (!Array.isArray(branches) || !branches.length) {
+    return `<span class="chip">no branches</span>`;
+  }
+
+  return branches
+    .map((branch) => {
+      const name = String(branch?.name || "").trim();
+      if (!name) {
+        return "";
+      }
+      const shortId = String(branch?.short_id || "").trim();
+      const title = shortId ? `${name} @ ${shortId}` : name;
+      return `<span class="chip branch ${branch.is_current ? "current" : ""}" title="${escapeHtml(title)}">${escapeHtml(name)}</span>`;
+    })
+    .join("");
+}
+
+function renderCheckpointBranchTips(checkpoint) {
+  const branchTips = normalizeStringArray(checkpoint.branch_tips);
+  if (!branchTips.length) {
+    return "";
+  }
+
+  return branchTips
+    .map((branch) => `<span class="chip branch-tip">${escapeHtml(branch)}</span>`)
+    .join("");
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value || "");
+  if (text.length <= maxLength) {
+    return text;
+  }
+  if (maxLength <= 3) {
+    return text.slice(0, maxLength);
+  }
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
+function layoutCheckpointDag(checkpointView) {
+  const nodes = checkpointView.nodes || [];
+  const edges = checkpointView.edges || [];
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const orderById = new Map(nodes.map((node, index) => [node.id, index]));
+  const childrenByParent = new Map();
+  const childIds = new Set();
+
+  for (const edge of edges) {
+    if (!nodeById.has(edge.parent) || !nodeById.has(edge.child)) {
+      continue;
+    }
+    if (!childrenByParent.has(edge.parent)) {
+      childrenByParent.set(edge.parent, []);
+    }
+    childrenByParent.get(edge.parent).push(edge.child);
+    childIds.add(edge.child);
+  }
+
+  for (const children of childrenByParent.values()) {
+    children.sort((left, right) => (orderById.get(left) || 0) - (orderById.get(right) || 0));
+  }
+
+  const laneById = new Map();
+  let nextLane = 0;
+  const assignLane = (id, preferredLane = null) => {
+    if (!id || laneById.has(id) || !nodeById.has(id)) {
+      return;
+    }
+    const lane = preferredLane === null ? nextLane++ : preferredLane;
+    laneById.set(id, lane);
+
+    const children = childrenByParent.get(id) || [];
+    children.forEach((child, index) => {
+      assignLane(child, index === 0 ? lane : nextLane++);
+    });
+  };
+
+  const roots = nodes.filter((node) => !childIds.has(node.id));
+  for (const root of roots.length ? roots : nodes.slice(0, 1)) {
+    assignLane(root.id);
+  }
+  for (const node of nodes) {
+    assignLane(node.id);
+  }
+
+  const nodeWidth = 190;
+  const nodeHeight = 62;
+  const laneGap = 230;
+  const rowGap = 90;
+  const padding = 20;
+  const positionedNodes = nodes.map((node, index) => ({
+    ...node,
+    x: padding + (laneById.get(node.id) || 0) * laneGap,
+    y: padding + index * rowGap,
+    width: nodeWidth,
+    height: nodeHeight,
+  }));
+  const laneCount = Math.max(1, ...Array.from(laneById.values()).map((lane) => lane + 1));
+
+  return {
+    nodes: positionedNodes,
+    nodeById: new Map(positionedNodes.map((node) => [node.id, node])),
+    edges,
+    width: padding * 2 + laneCount * laneGap - (laneGap - nodeWidth),
+    height: padding * 2 + positionedNodes.length * rowGap - (rowGap - nodeHeight),
+  };
+}
+
+function renderCheckpointDag(checkpointView) {
+  if (!checkpointView.nodes.length) {
+    return "";
+  }
+
+  const layout = layoutCheckpointDag(checkpointView);
+  const edgeMarkup = layout.edges
+    .map((edge) => {
+      const parent = layout.nodeById.get(edge.parent);
+      const child = layout.nodeById.get(edge.child);
+      if (!parent || !child) {
+        return "";
+      }
+      const startX = parent.x + parent.width / 2;
+      const startY = parent.y + parent.height;
+      const endX = child.x + child.width / 2;
+      const endY = child.y;
+      const midY = startY + Math.max(24, (endY - startY) / 2);
+      return `<path class="dag-edge" d="M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}" marker-end="url(#dag-arrow)" />`;
+    })
+    .join("");
+
+  const nodeMarkup = layout.nodes
+    .map((node) => {
+      const branchTips = normalizeStringArray(node.branch_tips).join(", ");
+      const flags = [
+        node.is_head ? "HEAD" : "",
+        node.is_fork ? "fork" : "",
+        branchTips,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+      const className = [
+        "dag-node",
+        node.is_head ? "head" : "",
+        node.is_fork ? "fork" : "",
+        branchTips ? "tip" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `
+        <g class="${className}" transform="translate(${node.x} ${node.y})">
+          <rect width="${node.width}" height="${node.height}" rx="6" />
+          <text class="dag-node-title" x="12" y="22">${escapeHtml(truncateText(node.name, 24))}</text>
+          <text class="dag-node-meta" x="12" y="41">${escapeHtml(node.short_id || node.id.slice(0, 12))}</text>
+          ${flags ? `<text class="dag-node-flags" x="12" y="55">${escapeHtml(truncateText(flags, 28))}</text>` : ""}
+        </g>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="checkpoint-dag" aria-label="Checkpoint DAG" role="img">
+      <svg width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet">
+        <defs>
+          <marker id="dag-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path class="dag-arrow" d="M 0 0 L 10 5 L 0 10 z" />
+          </marker>
+        </defs>
+        <g class="dag-edges">${edgeMarkup}</g>
+        <g class="dag-nodes">${nodeMarkup}</g>
+      </svg>
+    </div>
+  `;
 }
 
 function filteredChallenges() {
@@ -612,17 +800,64 @@ function renderFilesBrowserCard() {
   `;
 }
 
+function renderEvidenceJumpCard() {
+  if (!state.detail) {
+    return "";
+  }
+
+  const jumps = Array.isArray(state.detail.evidence_jumps) ? state.detail.evidence_jumps : [];
+  const jumpMarkup = jumps.length
+    ? jumps
+        .map((jump) => {
+          const artifact = String(jump.artifact || "").trim();
+          const summary = String(jump.summary || "").trim();
+          const command = String(jump.command || "").trim();
+          const source = String(jump.source || "").trim();
+          return `
+            <div class="evidence-jump-item">
+              <div class="evidence-jump-meta">
+                <span class="chip">${escapeHtml(jump.type || "evidence")}</span>
+                ${jump.exists ? `<span class="chip ok">available</span>` : `<span class="chip warn">missing</span>`}
+                ${jump.exists ? `<span class="chip">${escapeHtml(String(jump.size || 0))} B</span>` : ""}
+              </div>
+              <button class="entry-title file-link evidence-jump evidence-jump-path" data-path="${escapeHtml(artifact)}" type="button" ${jump.exists ? "" : "disabled"}>
+                ${escapeHtml(artifact)}
+              </button>
+              ${summary ? `<div class="evidence-jump-text">${escapeHtml(summary)}</div>` : ""}
+              ${source ? `<div class="evidence-jump-field"><span>source</span><code>${escapeHtml(source)}</code></div>` : ""}
+              ${command ? `<div class="evidence-jump-field"><span>command</span><code>${escapeHtml(command)}</code></div>` : ""}
+              <div class="evidence-jump-actions">
+                <button class="button ghost evidence-jump" data-path="${escapeHtml(artifact)}" type="button" ${jump.exists ? "" : "disabled"}>Open</button>
+              </div>
+            </div>
+          `;
+        })
+        .join("")
+    : `<p class="muted">No structured evidence references in cognition.</p>`;
+
+  return `
+    <section class="detail-card stack evidence-jump-card">
+      <div class="detail-header">
+        <h3>Evidence Jump</h3>
+        <span class="chip">${jumps.length} refs</span>
+      </div>
+      <div class="evidence-jump-list">${jumpMarkup}</div>
+    </section>
+  `;
+}
+
 function renderDetail() {
   if (!state.detail || !state.selected) {
     renderEmptyDetail();
     return;
   }
 
-  const { summary, checkpoints, checkpoint_graph } = state.detail;
+  const { summary, checkpoints, checkpoint_graph, branches } = state.detail;
   const checkpointView = normalizeCheckpointGraph(checkpoint_graph, checkpoints);
   const previewableCount = previewablePaths(state.detail).length;
   const statusTone = summary.solve_status === "solved" ? "ok" : "warn";
   const challengeType = summary.challenge_type || "unknown";
+  const currentBranch = summary.current_branch || branches?.find((branch) => branch.is_current)?.name || "";
 
   const checkpointMarkup = checkpointView.nodes.length
     ? checkpointView.nodes
@@ -639,6 +874,8 @@ function renderDetail() {
               <div class="checkpoint-actions">
                 ${checkpoint.is_head ? `<span class="chip ok">head</span>` : ""}
                 ${checkpoint.is_latest ? `<span class="chip ok">latest</span>` : ""}
+                ${checkpoint.is_fork ? `<span class="chip fork">fork</span>` : ""}
+                ${renderCheckpointBranchTips(checkpoint)}
               </div>
             </div>
           `
@@ -662,6 +899,8 @@ function renderDetail() {
       </div>
       <div class="stats-grid">
         <div class="stat"><span class="meta">Checkpoints</span><strong>${summary.checkpoint_count}</strong></div>
+        <div class="stat"><span class="meta">Branches</span><strong>${summary.branch_count || 0}</strong></div>
+        <div class="stat"><span class="meta">Current branch</span><strong>${escapeHtml(currentBranch || "detached")}</strong></div>
         <div class="stat"><span class="meta">Type</span><strong>${escapeHtml(challengeType)}</strong></div>
         <div class="stat"><span class="meta">Artifacts</span><strong>${summary.artifact_count}</strong></div>
         <div class="stat"><span class="meta">Previewable</span><strong>${previewableCount}</strong></div>
@@ -678,12 +917,16 @@ function renderDetail() {
             <div class="checkpoint-summary">
               <span class="chip">${checkpointView.nodes.length} saved</span>
               <span class="chip ok">${summary.checkpoint_count} commits</span>
+              <span class="chip">${summary.branch_count || 0} branches</span>
             </div>
           </div>
+          <div class="branch-overview">${renderBranchOverview(branches)}</div>
+          ${renderCheckpointDag(checkpointView)}
           <div class="checkpoints">${checkpointMarkup}</div>
         </section>
       </div>
       <div class="side-column">
+        ${renderEvidenceJumpCard()}
         ${renderFilesBrowserCard()}
       </div>
     </div>
@@ -697,6 +940,18 @@ function renderDetail() {
   });
   document.querySelectorAll(".browser-dir").forEach((button) => {
     button.addEventListener("click", () => loadBrowser(button.dataset.path));
+  });
+  document.querySelectorAll(".evidence-jump").forEach((button) => {
+    button.addEventListener("click", () => {
+      const path = button.dataset.path;
+      if (!path) {
+        return;
+      }
+      loadFilePreview(path);
+      const parts = path.split("/").filter(Boolean);
+      parts.pop();
+      loadBrowser(parts.length ? parts.join("/") : ".");
+    });
   });
   document.querySelectorAll(".browser-crumb").forEach((button) => {
     button.addEventListener("click", () => loadBrowser(button.dataset.browserPath));

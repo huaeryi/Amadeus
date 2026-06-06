@@ -9,4 +9,6 @@ Use this directory as a lightweight toolbox for Codex-driven CTF work.
 - `prompts/cmds/guide.md` is used by `bin/amds guide ...` to make Codex ask short thinking questions before key pivots.
 - `challenges/` may contain grouped challenge paths such as `challenges/defcon/baby_tcache`.
 
+Treat the Amadeus root as a toolbox, not a challenge workspace. When solving, preprocessing, auditing, or learning from a challenge through `bin/amds`, Codex/Claude should be launched with the current working directory set to the resolved challenge directory under `challenges/`. Create, edit, delete, run, and checkpoint challenge files only inside that challenge directory unless the prompt explicitly asks to update shared Amadeus files such as `prompts/learn/*`.
+
 When solving a pwn challenge through `bin/amds`, prefer the workflow embedded in `prompts/workflow/pwn.md`.

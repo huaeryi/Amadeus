@@ -384,6 +384,86 @@ def preview_file(challenge_name: str, relative_path: str) -> dict[str, Any]:
     }
 
 
+def collect_evidence_jumps(path: Path) -> list[dict[str, Any]]:
+    cognition_path = resolve_document_path(path, "cognition.json")
+    if not cognition_path.exists():
+        return []
+
+    try:
+        cognition = json.loads(cognition_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+
+    jumps: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_jump(item: dict[str, Any], source: str) -> None:
+        artifact = str(item.get("artifact") or "").strip()
+        if not artifact:
+            return
+        artifact_path = Path(artifact)
+        if artifact_path.is_absolute() or any(part in {"", ".", ".."} for part in artifact_path.parts):
+            return
+        resolved_path = (path / artifact_path).resolve()
+        try:
+            resolved_path.relative_to(path.resolve())
+        except ValueError:
+            return
+        if not resolved_path.exists() or not resolved_path.is_file():
+            exists = False
+            size = 0
+            modified_at = ""
+        else:
+            exists = True
+            stat = resolved_path.stat()
+            size = stat.st_size
+            modified_at = isoformat_from_timestamp(stat.st_mtime)
+
+        summary = str(item.get("summary") or item.get("reason") or item.get("method") or "").strip()
+        evidence_type = str(item.get("type") or "evidence").strip()
+        command = str(item.get("command") or "").strip()
+        key = (artifact, source)
+        if key in seen:
+            return
+        seen.add(key)
+        jumps.append(
+            {
+                "artifact": artifact,
+                "source": source,
+                "type": evidence_type,
+                "summary": summary,
+                "command": command,
+                "exists": exists,
+                "size": size,
+                "modified_at": modified_at,
+            }
+        )
+
+    def walk(value: Any, source: str) -> None:
+        if isinstance(value, dict):
+            if "artifact" in value:
+                add_jump(value, source)
+            next_source = source
+            name = str(value.get("name") or value.get("title") or value.get("id") or "").strip()
+            if name:
+                next_source = f"{source}: {name}"
+            for key, child in value.items():
+                if key == "artifact":
+                    continue
+                if key in {"evidence", "verification"}:
+                    walk(child, f"{next_source}.{key}")
+                else:
+                    walk(child, next_source)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, f"{source}[{index}]")
+
+    for section_name in ("facts", "state", "capabilities"):
+        walk(cognition.get(section_name), section_name)
+
+    return sorted(jumps, key=lambda item: (not item["exists"], item["artifact"], item["source"]))
+
+
 def collect_artifacts(path: Path) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
     for entry in sorted(path.iterdir(), key=lambda item: item.name.lower()):
@@ -415,7 +495,11 @@ def collect_checkpoints(path: Path) -> list[dict[str, Any]]:
         return checkpoints
     head_hash = head_result.stdout.strip()
 
-    log_result = run_git(path, "log", "--date=unix", "--format=%H%x1f%h%x1f%P%x1f%ct%x1f%s")
+    branch_tips: dict[str, list[str]] = {}
+    for branch in collect_checkpoint_branches(path):
+        branch_tips.setdefault(branch["commit_id"], []).append(branch["name"])
+
+    log_result = run_git(path, "log", "--all", "--topo-order", "--date=unix", "--format=%H%x1f%h%x1f%P%x1f%ct%x1f%s")
     if log_result.returncode != 0:
         return checkpoints
 
@@ -439,20 +523,47 @@ def collect_checkpoints(path: Path) -> list[dict[str, Any]]:
                 "parent_id": parent_hashes.split()[0] if parent_hashes.strip() else None,
                 "is_latest": False,
                 "is_head": full_hash == head_hash,
+                "branch_tips": branch_tips.get(full_hash, []),
             }
         )
 
-    if checkpoints:
-        checkpoints[0]["is_latest"] = True
+    for checkpoint in checkpoints:
+        checkpoint["is_latest"] = checkpoint["id"] == head_hash
 
     checkpoint_ids = {checkpoint["id"] for checkpoint in checkpoints}
-    previous_id: str | None = None
-    for checkpoint in reversed(checkpoints):
+    for checkpoint in checkpoints:
         if checkpoint["parent_id"] not in checkpoint_ids:
-            checkpoint["parent_id"] = previous_id
-        previous_id = checkpoint["id"]
+            checkpoint["parent_id"] = None
 
     return checkpoints
+
+
+def collect_checkpoint_branches(path: Path) -> list[dict[str, Any]]:
+    if not (path / ".git").exists():
+        return []
+
+    current_result = run_git(path, "branch", "--show-current")
+    current_branch = current_result.stdout.strip() if current_result.returncode == 0 else ""
+
+    branch_result = run_git(path, "for-each-ref", "--format=%(refname:short)%09%(objectname)%09%(objectname:short)", "refs/heads")
+    if branch_result.returncode != 0:
+        return []
+
+    branches: list[dict[str, Any]] = []
+    for line in branch_result.stdout.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        name, commit_id, short_id = parts
+        branches.append(
+            {
+                "name": name,
+                "commit_id": commit_id,
+                "short_id": short_id,
+                "is_current": name == current_branch,
+            }
+        )
+    return branches
 
 
 def build_checkpoint_graph(checkpoints: list[dict[str, Any]]) -> dict[str, Any]:
@@ -465,6 +576,7 @@ def build_checkpoint_graph(checkpoints: list[dict[str, Any]]) -> dict[str, Any]:
                 "target_dir": checkpoint.get("target_dir", "."),
                 "parent_id": checkpoint.get("parent_id"),
                 "short_id": checkpoint.get("short_id"),
+                "branch_tips": checkpoint.get("branch_tips", []),
             }
             for checkpoint in checkpoints
         ],
@@ -503,6 +615,8 @@ def parse_run_info(path: Path) -> dict[str, Any]:
 def challenge_summary(path: Path) -> dict[str, Any]:
     artifacts = collect_artifacts(path)
     checkpoints = collect_checkpoints(path)
+    branches = collect_checkpoint_branches(path)
+    evidence_jumps = collect_evidence_jumps(path)
     state_stage = read_state_stage(path)
     solve_status = derive_solve_status(state_stage)
     metadata = read_challenge_metadata(path)
@@ -528,6 +642,9 @@ def challenge_summary(path: Path) -> dict[str, Any]:
         "solve_status": solve_status,
         "core_files": core_files,
         "checkpoint_count": len(checkpoints),
+        "branch_count": len(branches),
+        "current_branch": next((branch["name"] for branch in branches if branch.get("is_current")), ""),
+        "evidence_count": len(evidence_jumps),
         "artifact_count": len(artifacts),
         "updated_at": updated_at,
         "has_exp": (path / "exp.py").exists(),
@@ -544,10 +661,14 @@ def challenge_detail(name: str) -> dict[str, Any]:
 
     documents = {document: read_text_if_exists(resolve_document_path(path, document)) for document in CORE_DOCUMENTS}
     checkpoints = collect_checkpoints(path)
+    branches = collect_checkpoint_branches(path)
+    evidence_jumps = collect_evidence_jumps(path)
     return {
         "summary": challenge_summary(path),
         "documents": documents,
         "checkpoints": checkpoints,
+        "branches": branches,
+        "evidence_jumps": evidence_jumps,
         "checkpoint_graph": build_checkpoint_graph(checkpoints),
         "artifacts": collect_artifacts(path),
     }
