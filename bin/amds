@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--policy strict|aggressive|none] [--group NAME] [--append TEXT] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
+usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--policy strict|aggressive|none] [--group NAME] [--append TEXT] [--mode solve|guide|pre|audit|fetch|exec|learn|auto] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [<challenge|path|url>] [-- agent_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
@@ -29,6 +29,8 @@ examples:
   amds exec https://www.nssctf.cn/problem/131
   amds exec --workflow pwn https://www.nssctf.cn/problem/131
   amds learn newnote
+  amds auto
+  amds auto --dry-run
   amds --workflow pwn newnote
   amds --web web_chal
   amds --crypto crypto_chal
@@ -59,6 +61,7 @@ behavior:
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
   - learn mode runs the post-solve learning/reflection workflow for a challenge
+  - auto mode is run inside a challenge directory and expands to solve with the inferred workflow
   - exec mode accepts --workflow to force the solve workflow after fetch
   - CTF category is selected by --workflow, defaulting to pwn for solve mode and x402 for audit mode
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
@@ -203,6 +206,89 @@ resolve_challenge() {
     printf '%s\n' "$candidate"
 }
 
+has_challenge_marker() {
+    local dir="$1"
+
+    [ -f "${dir}/description.md" ] || \
+        [ -d "${dir}/amds_state" ] || \
+        [ -f "${dir}/cognition.json" ] || \
+        [ -f "${dir}/.pwnrun" ] || \
+        [ -f "${dir}/exp.py" ] || \
+        [ -f "${dir}/solve.py" ] || \
+        [ -f "${dir}/wp.md" ]
+}
+
+has_top_level_file() {
+    local dir="$1"
+    local item
+
+    for item in "${dir}"/* "${dir}"/.[!.]* "${dir}"/..?*; do
+        [ -e "$item" ] || continue
+        if [ -f "$item" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+path_depth() {
+    local path="$1"
+    local old_ifs
+    local part
+    local depth=0
+
+    old_ifs="$IFS"
+    IFS='/'
+    for part in $path; do
+        [ -n "$part" ] || continue
+        depth=$((depth + 1))
+    done
+    IFS="$old_ifs"
+
+    printf '%s\n' "$depth"
+}
+
+resolve_current_challenge() {
+    local cwd
+    local challenges_root
+    local candidate
+    local rel
+    local depth
+
+    cwd="$(pwd -P)"
+    challenges_root="${root_dir}/challenges"
+
+    case "$cwd" in
+        "${challenges_root}/"*) ;;
+        *)
+            die "auto must be run from a challenge directory under ${challenges_root}"
+            ;;
+    esac
+
+    candidate="$cwd"
+    while [ "$candidate" != "$challenges_root" ] && [ "$candidate" != "/" ]; do
+        if has_challenge_marker "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+        candidate="$(dirname "$candidate")"
+    done
+
+    rel="${cwd#${challenges_root}/}"
+    depth="$(path_depth "$rel")"
+    if [ "$depth" = "2" ]; then
+        printf '%s\n' "$cwd"
+        return 0
+    fi
+    if [ "$depth" = "1" ] && has_top_level_file "$cwd"; then
+        printf '%s\n' "$cwd"
+        return 0
+    fi
+
+    die "auto could not identify a challenge directory from ${cwd}; run it from the challenge root or initialize state first"
+}
+
 render_template() {
     local template_path="$1"
     local challenge_path="$2"
@@ -328,6 +414,101 @@ infer_workflow_from_challenge() {
     esac
 }
 
+infer_workflow_from_text() {
+    local text="$1"
+    local lower
+    local pwn_score=0
+    local web_score=0
+    local crypto_score=0
+    local misc_score=0
+    local reverse_score=0
+    local x402_score=0
+    local best=""
+    local best_score=0
+    local ties=0
+    local workflow_score
+    local workflow_name
+    local score
+
+    lower="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
+
+    case "$lower" in
+        *"--workflow pwn"*|*"--workflow=pwn"*|*"--pwn"*|*"amds solve pwn"*|*"workflow: pwn"*|*"workflow pwn"*|*"category: pwn"*|*"category pwn"*|*"题型: pwn"*|*"题型 pwn"*|*"pwn题"*)
+            pwn_score=$((pwn_score + 10))
+            ;;
+    esac
+    case "$lower" in
+        *"--workflow web"*|*"--workflow=web"*|*"--web"*|*"amds solve web"*|*"workflow: web"*|*"workflow web"*|*"category: web"*|*"category web"*|*"题型: web"*|*"题型 web"*|*"web题"*)
+            web_score=$((web_score + 10))
+            ;;
+    esac
+    case "$lower" in
+        *"--workflow crypto"*|*"--workflow=crypto"*|*"--crypto"*|*"amds solve crypto"*|*"workflow: crypto"*|*"workflow crypto"*|*"category: crypto"*|*"category crypto"*|*"题型: crypto"*|*"题型 crypto"*|*"crypto题"*)
+            crypto_score=$((crypto_score + 10))
+            ;;
+    esac
+    case "$lower" in
+        *"--workflow misc"*|*"--workflow=misc"*|*"--misc"*|*"amds solve misc"*|*"workflow: misc"*|*"workflow misc"*|*"category: misc"*|*"category misc"*|*"题型: misc"*|*"题型 misc"*|*"misc题"*)
+            misc_score=$((misc_score + 10))
+            ;;
+    esac
+    case "$lower" in
+        *"--workflow reverse"*|*"--workflow=reverse"*|*"--reverse"*|*"amds solve reverse"*|*"amds solve rev"*|*"workflow: reverse"*|*"workflow reverse"*|*"category: reverse"*|*"category reverse"*|*"题型: reverse"*|*"题型 reverse"*|*"reverse题"*|*"rev题"*)
+            reverse_score=$((reverse_score + 10))
+            ;;
+    esac
+    case "$lower" in
+        *"--workflow x402"*|*"--workflow=x402"*|*"--x402"*|*"amds solve x402"*|*"workflow: x402"*|*"workflow x402"*|*"category: x402"*|*"category x402"*|*"题型: x402"*|*"题型 x402"*)
+            x402_score=$((x402_score + 10))
+            ;;
+    esac
+
+    case "$lower" in *"heap"*|*"libc"*|*"rop"*|*"ret2libc"*|*"canary"*|*"elf"*|*"format string"*|*"栈溢出"*|*"堆"*|*"格式化字符串"*) pwn_score=$((pwn_score + 1)) ;; esac
+    case "$lower" in *"ssti"*|*"sqli"*|*"xss"*|*"ssrf"*|*"flask"*|*"php"*|*"jwt"*|*"upload"*|*"sql注入"*|*"文件上传"*) web_score=$((web_score + 1)) ;; esac
+    case "$lower" in *"rsa"*|*"aes"*|*"ecc"*|*"lattice"*|*"lcg"*|*"padding oracle"*|*"密码"*|*"加密"*) crypto_score=$((crypto_score + 1)) ;; esac
+    case "$lower" in *"ida"*|*"ghidra"*|*"apk"*|*"wasm"*|*"逆向"*|*"反编译"*) reverse_score=$((reverse_score + 1)) ;; esac
+    case "$lower" in *"forensics"*|*"pcap"*|*"wireshark"*|*"zip"*|*"png"*|*"audio"*|*"取证"*|*"杂项"*) misc_score=$((misc_score + 1)) ;; esac
+    case "$lower" in *"x402"*) x402_score=$((x402_score + 1)) ;; esac
+
+    for workflow_score in \
+        "pwn:${pwn_score}" \
+        "web:${web_score}" \
+        "crypto:${crypto_score}" \
+        "misc:${misc_score}" \
+        "reverse:${reverse_score}" \
+        "x402:${x402_score}"
+    do
+        workflow_name="${workflow_score%%:*}"
+        score="${workflow_score#*:}"
+        if [ "$score" -gt "$best_score" ]; then
+            best="$workflow_name"
+            best_score="$score"
+            ties=0
+        elif [ "$score" -gt 0 ] && [ "$score" = "$best_score" ]; then
+            ties=$((ties + 1))
+        fi
+    done
+
+    if [ "$best_score" -gt 0 ] && [ "$ties" = "0" ]; then
+        printf '%s\n' "$best"
+    fi
+}
+
+join_append_lines_text() {
+    local line
+    local text=""
+
+    for line in "${append_lines[@]}"; do
+        if [ -z "$text" ]; then
+            text="$line"
+        else
+            text="${text}"$'\n'"$line"
+        fi
+    done
+
+    printf '%s\n' "$text"
+}
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "${script_dir}/.." && pwd)"
 workspace_parent="$(cd "${root_dir}/.." && pwd)"
@@ -418,11 +599,15 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --mode|-m)
-            [ $# -ge 2 ] || die "--mode requires solve, guide, pre, audit, fetch, exec, or learn"
+            [ $# -ge 2 ] || die "--mode requires solve, guide, pre, audit, fetch, exec, learn, or auto"
             case "$2" in
                 solve|fetch|exec)
                     mode="$2"
                     display_mode="$2"
+                    ;;
+                auto)
+                    mode="auto"
+                    display_mode="auto"
                     ;;
                 pre)
                     mode="pre"
@@ -483,6 +668,12 @@ while [ $# -gt 0 ]; do
                         shift
                         continue
                         ;;
+                    auto)
+                        mode="auto"
+                        display_mode="auto"
+                        shift
+                        continue
+                        ;;
                     pre)
                         mode="pre"
                         display_mode="pre"
@@ -534,7 +725,19 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -n "$target_input" ] || die "target is required"
+if [ "$mode" = "auto" ]; then
+    if [ -n "$target_input" ]; then
+        die "auto does not accept a target; run it from inside the challenge directory"
+    fi
+    if [ -n "$challenge_group" ]; then
+        die "--group is not supported with auto; run auto from the challenge directory instead"
+    fi
+    if [ -n "$session_input" ]; then
+        die "--session is only supported with learn mode"
+    fi
+else
+    [ -n "$target_input" ] || die "target is required"
+fi
 
 case "$runner" in
     codex|claude) ;;
@@ -552,6 +755,71 @@ challenge_prompt_path=""
 target_url=""
 session_prompt_value=""
 session_prompt_path=""
+
+if [ "$mode" = "auto" ]; then
+    challenge_dir="$(resolve_current_challenge)"
+    auto_template_path="$(resolve_template "auto")"
+    if [ "$workflow_explicit" = "1" ]; then
+        solve_workflow="$workflow"
+        solve_workflow_source="option"
+    else
+        append_workflow="$(infer_workflow_from_text "$(join_append_lines_text)")"
+        if [ -n "$append_workflow" ]; then
+            solve_workflow="$append_workflow"
+            solve_workflow_source="append"
+        else
+            solve_workflow="$(infer_workflow_from_challenge "$challenge_dir")"
+            solve_workflow_source="challenge"
+        fi
+    fi
+
+    solve_cmd=("$0" --mode solve --workflow "$solve_workflow" --runner "$runner" --policy "$policy")
+    if [ ${#append_lines[@]} -gt 0 ]; then
+        for line in "${append_lines[@]}"; do
+            solve_cmd+=(--append "$line")
+        done
+    fi
+    solve_cmd+=("$challenge_dir")
+    if [ ${#agent_args[@]} -gt 0 ]; then
+        solve_cmd+=("--" "${agent_args[@]}")
+    fi
+
+    if [ "$dry_run" = "1" ]; then
+        printf 'workspace: %s\n' "$challenge_dir"
+        printf 'mode: auto\n'
+        printf 'resolved_mode: solve\n'
+        printf 'runner: %s\n' "$runner"
+        printf 'policy: %s\n' "$policy"
+        printf 'workflow: %s\n' "$solve_workflow"
+        printf 'workflow_source: %s\n' "$solve_workflow_source"
+        printf 'auto_prompt: %s\n' "$auto_template_path"
+        printf 'challenge: %s\n' "$challenge_dir"
+        printf 'solve_command:'
+        for arg in "${solve_cmd[@]}"; do
+            printf ' %q' "$arg"
+        done
+        printf '\n'
+        exit 0
+    fi
+
+    if [ "$print_prompt" = "1" ]; then
+        challenge_prompt_path="$challenge_dir"
+        workspace_dir="$challenge_dir"
+        workflow="$solve_workflow"
+        prompt=""
+        join_prompt "$(render_template "$auto_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
+        if [ ${#append_lines[@]} -gt 0 ]; then
+            for line in "${append_lines[@]}"; do
+                append_prompt_line "$line"
+            done
+        fi
+        prepend_prompt_context
+        printf '%s\n' "$prompt"
+        exit 0
+    fi
+
+    exec "${solve_cmd[@]}"
+fi
 
 case "$mode" in
     solve|audit|pre)
