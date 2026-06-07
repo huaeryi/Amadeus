@@ -40,14 +40,25 @@ cd challenges/defcon/baby_tcache && ../../../bin/amds auto
 
 `auto` 在题目目录内运行，会识别当前 challenge 并展开成对应的 `solve` 命令；如果题面或状态里有 category，会自动选择 `pwn` / `web` / `crypto` / `reverse` / `misc` / `x402` workflow，否则默认 `pwn`。
 
-`auto` 也会参考 `--append` 中的题型提示或命令片段：
+`auto` 也会参考位置参数描述或 `--append` 中的题型提示、命令片段：
 
 ```bash
+amds auto "题型 web，远程地址是 http://example/"
 amds auto --append "题型 web，远程地址是 http://example/"
 amds auto --append "amds solve crypto" --dry-run
 ```
 
 `solve`、`guide`、`pre`、`audit`、`learn` 和 `auto` 会把底层 Codex/Claude 的工作目录切到解析后的题目目录，例如 `challenges/baby_tcache/`。Amadeus 根目录只作为工具箱使用，解题文件、临时脚本、日志和 checkpoint 都应留在对应 challenge 目录里。
+
+全局使用：
+
+```bash
+mkdir -p ~/bin
+ln -sf /path/to/Amadeus/bin/amds ~/bin/amds
+export PATH="$HOME/bin:$PATH"
+```
+
+`amds` 会解析 symlink 的真实位置，所以从任意目录执行时仍然能找到原 Amadeus 根目录和对应的 `challenges/`。
 
 只做前处理：
 

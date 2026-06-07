@@ -31,6 +31,7 @@ examples:
   amds learn newnote
   amds auto
   amds auto --dry-run
+  amds auto "题型 web，远程地址是 http://example/"
   amds --workflow pwn newnote
   amds --web web_chal
   amds --crypto crypto_chal
@@ -51,7 +52,7 @@ examples:
   amds newnote
 
 behavior:
-  - solve/guide/pre/audit/learn targets are always resolved under ./challenges/
+  - bare or relative solve/guide/pre/audit/learn targets are resolved under ./challenges/; existing absolute directories are accepted
   - target x402_research/x402 means ./challenges/x402_research/x402
   - solve mode reads prompts/cmds/solve.md, then the --workflow prompt under prompts/workflow/
   - guide mode reads prompts/cmds/guide.md, then the --workflow prompt under prompts/workflow/
@@ -61,7 +62,7 @@ behavior:
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
   - learn mode runs the post-solve learning/reflection workflow for a challenge
-  - auto mode is run inside a challenge directory and expands to solve with the inferred workflow
+  - auto mode is run inside a challenge directory, accepts an optional description, and expands to solve with the inferred workflow
   - exec mode accepts --workflow to force the solve workflow after fetch
   - CTF category is selected by --workflow, defaulting to pwn for solve mode and x402 for audit mode
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
@@ -83,6 +84,23 @@ detect_platform() {
         Linux) printf '%s\n' linux ;;
         *) printf '%s\n' unknown ;;
     esac
+}
+
+resolve_script_path() {
+    local source="$1"
+    local dir
+
+    while [ -h "$source" ]; do
+        dir="$(cd -P "$(dirname "$source")" && pwd)"
+        source="$(readlink "$source")"
+        case "$source" in
+            /*) ;;
+            *) source="${dir}/${source}" ;;
+        esac
+    done
+
+    dir="$(cd -P "$(dirname "$source")" && pwd)"
+    printf '%s/%s\n' "$dir" "$(basename "$source")"
 }
 
 normalize_path() {
@@ -195,12 +213,19 @@ resolve_challenge() {
     candidate="$(normalize_path "$candidate")"
     [ -n "$candidate" ] || die "challenge directory not found: $input"
 
-    if [[ "$candidate" != "${root_dir}/challenges/"* ]]; then
-        die "challenge must live under ${root_dir}/challenges: $input"
-    fi
-
     if [ -e "$candidate" ] && [ ! -d "$candidate" ]; then
         die "challenge path exists but is not a directory: $input"
+    fi
+
+    if [[ "$candidate" != "${root_dir}/challenges/"* ]]; then
+        case "$input" in
+            /*)
+                [ -d "$candidate" ] || die "external absolute challenge directory must already exist: $input"
+                ;;
+            *)
+                die "challenge must live under ${root_dir}/challenges unless an existing absolute directory is provided: $input"
+                ;;
+        esac
     fi
 
     printf '%s\n' "$candidate"
@@ -509,7 +534,8 @@ join_append_lines_text() {
     printf '%s\n' "$text"
 }
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+script_path="$(resolve_script_path "${BASH_SOURCE[0]}")"
+script_dir="$(cd "$(dirname "$script_path")" && pwd)"
 root_dir="$(cd "${script_dir}/.." && pwd)"
 workspace_parent="$(cd "${root_dir}/.." && pwd)"
 root_name="$(basename "${root_dir}")"
@@ -726,9 +752,6 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$mode" = "auto" ]; then
-    if [ -n "$target_input" ]; then
-        die "auto does not accept a target; run it from inside the challenge directory"
-    fi
     if [ -n "$challenge_group" ]; then
         die "--group is not supported with auto; run auto from the challenge directory instead"
     fi
@@ -758,6 +781,9 @@ session_prompt_path=""
 
 if [ "$mode" = "auto" ]; then
     challenge_dir="$(resolve_current_challenge)"
+    if [ -n "$target_input" ]; then
+        append_lines+=("$target_input")
+    fi
     auto_template_path="$(resolve_template "auto")"
     if [ "$workflow_explicit" = "1" ]; then
         solve_workflow="$workflow"
