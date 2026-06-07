@@ -552,6 +552,79 @@ join_append_lines_text() {
     printf '%s\n' "$text"
 }
 
+run_with_pty_capture() {
+    local cwd="$1"
+    local output_file="$2"
+    shift 2
+
+    python3 - "$cwd" "$output_file" "$@" <<'PY'
+import os
+import pty
+import select
+import signal
+import sys
+
+cwd = sys.argv[1]
+output_file = sys.argv[2]
+cmd = sys.argv[3:]
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(cwd)
+    os.execvp(cmd[0], cmd)
+
+child_status = None
+try:
+    with open(output_file, "wb") as out:
+        while True:
+            try:
+                readable, _, _ = select.select([fd], [], [], 0.1)
+            except InterruptedError:
+                continue
+            if fd not in readable:
+                pid_done, status = os.waitpid(pid, os.WNOHANG)
+                if pid_done:
+                    child_status = status
+                    break
+                continue
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            os.write(sys.stdout.fileno(), data)
+            out.write(data)
+            out.flush()
+except KeyboardInterrupt:
+    os.kill(pid, signal.SIGINT)
+
+if child_status is None:
+    _, child_status = os.waitpid(pid, 0)
+status = child_status
+if os.WIFEXITED(status):
+    sys.exit(os.WEXITSTATUS(status))
+if os.WIFSIGNALED(status):
+    sys.exit(128 + os.WTERMSIG(status))
+sys.exit(1)
+PY
+}
+
+read_terminal_capture() {
+    local output_file="$1"
+
+    python3 - "$output_file" <<'PY'
+import pathlib
+import re
+import sys
+
+data = pathlib.Path(sys.argv[1]).read_bytes().decode("utf-8", "replace")
+data = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", data)
+data = data.replace("\r\n", "\n").replace("\r", "\n")
+print(data, end="")
+PY
+}
+
 extract_auto_solve_line() {
     local output="$1"
     local line
@@ -838,6 +911,9 @@ if [ "$mode" = "auto" ]; then
     if [ -n "$target_input" ]; then
         append_lines+=("$target_input")
     fi
+    if [ "$workflow_explicit" = "1" ]; then
+        append_lines+=("Forced workflow from option: --workflow ${workflow}")
+    fi
     challenge_prompt_path="$challenge_dir"
     workspace_dir="$challenge_dir"
     workflow="auto"
@@ -1093,10 +1169,44 @@ if [ "$dry_run" = "1" ]; then
 fi
 
 if [ "$mode" = "auto" ]; then
-    if [ "$runner" = "claude" ]; then
-        auto_output="$(cd "$workspace_dir" && "${agent_cmd[@]}")"
+    if [ "$runner" = "codex" ]; then
+        auto_last_file="$(mktemp "${TMPDIR:-/tmp}/amds-auto-last.XXXXXX")"
+        auto_stdout_file="$(mktemp "${TMPDIR:-/tmp}/amds-auto-stdout.XXXXXX")"
+        auto_exec_cmd=(
+            "$agent_bin"
+            exec
+            --dangerously-bypass-approvals-and-sandbox
+            -C "$workspace_dir"
+            --color never
+            -o "$auto_last_file"
+        )
+        if [ ${#agent_args[@]} -gt 0 ]; then
+            auto_exec_cmd+=("${agent_args[@]}")
+        fi
+        auto_exec_cmd+=("$prompt")
+
+        if "${auto_exec_cmd[@]}" >"$auto_stdout_file"; then
+            auto_output="$(cat "$auto_last_file")"
+            if [ -z "$auto_output" ]; then
+                auto_output="$(cat "$auto_stdout_file")"
+            fi
+        else
+            auto_status=$?
+            cat "$auto_stdout_file"
+            rm -f "$auto_last_file" "$auto_stdout_file"
+            exit "$auto_status"
+        fi
+        rm -f "$auto_last_file" "$auto_stdout_file"
     else
-        auto_output="$("${agent_cmd[@]}")"
+        auto_capture_file="$(mktemp "${TMPDIR:-/tmp}/amds-auto.XXXXXX")"
+        if run_with_pty_capture "$workspace_dir" "$auto_capture_file" "${agent_cmd[@]}"; then
+            auto_output="$(read_terminal_capture "$auto_capture_file")"
+        else
+            auto_status=$?
+            rm -f "$auto_capture_file"
+            exit "$auto_status"
+        fi
+        rm -f "$auto_capture_file"
     fi
     printf '%s\n' "$auto_output"
 
@@ -1124,6 +1234,18 @@ fi
 
 if [ "$runner" = "claude" ]; then
     cd "$workspace_dir"
+fi
+
+if [ ! -t 1 ]; then
+    agent_capture_file="$(mktemp "${TMPDIR:-/tmp}/amds-runner.XXXXXX")"
+    if run_with_pty_capture "$workspace_dir" "$agent_capture_file" "${agent_cmd[@]}"; then
+        rm -f "$agent_capture_file"
+        exit 0
+    else
+        agent_status=$?
+        rm -f "$agent_capture_file"
+        exit "$agent_status"
+    fi
 fi
 
 exec "${agent_cmd[@]}"
