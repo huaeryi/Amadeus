@@ -62,7 +62,7 @@ behavior:
   - fetch mode accepts a challenge URL and generates a fetch-only prompt
   - exec mode runs fetch first, then solve on the fetched challenge
   - learn mode runs the post-solve learning/reflection workflow for a challenge
-  - auto mode is run inside a challenge directory, accepts an optional description, and expands to solve with the inferred workflow
+  - auto mode is run inside a challenge directory, asks the agent to infer the completed solve command, then runs the equivalent solve command
   - exec mode accepts --workflow to force the solve workflow after fetch
   - CTF category is selected by --workflow, defaulting to pwn for solve mode and x402 for audit mode
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
@@ -330,6 +330,8 @@ render_template() {
     local escaped_challenge_group_prefix
     local escaped_group_option
     local escaped_workflow
+    local escaped_runner
+    local escaped_policy
 
     [ -f "$template_path" ] || die "workflow template not found: $template_path"
     escaped_challenge_path="$(escape_sed_replacement "$challenge_path")"
@@ -341,10 +343,14 @@ render_template() {
     escaped_challenge_group_prefix="$(escape_sed_replacement "$challenge_group_prefix")"
     escaped_group_option="$(escape_sed_replacement "$group_option")"
     escaped_workflow="$(escape_sed_replacement "$workflow")"
+    escaped_runner="$(escape_sed_replacement "$runner")"
+    escaped_policy="$(escape_sed_replacement "$policy")"
     output="$(sed \
         -e "s|{{challenge_path}}|${escaped_challenge_path}|g" \
         -e "s|{{root_name}}|${escaped_prompt_root}|g" \
         -e "s|{{workflow}}|${escaped_workflow}|g" \
+        -e "s|{{runner}}|${escaped_runner}|g" \
+        -e "s|{{policy}}|${escaped_policy}|g" \
         -e "s|{{target_url}}|${escaped_target_url}|g" \
         -e "s|{{session}}|${escaped_session_id}|g" \
         -e "s|{{session_path}}|${escaped_session_path}|g" \
@@ -416,6 +422,7 @@ find_fetched_challenge() {
 infer_workflow_from_challenge() {
     local challenge_dir="$1"
     local category=""
+    local path_hint=""
 
     if [ -f "${challenge_dir}/description.md" ]; then
         category="$(sed -n 's/^- Category:[[:space:]]*//p' "${challenge_dir}/description.md" | head -n 1)"
@@ -426,6 +433,17 @@ infer_workflow_from_challenge() {
     fi
     if [ -z "$category" ] && [ -f "$cognition_file" ]; then
         category="$(python3 -c 'import json,sys; root=json.load(open(sys.argv[1])); meta=root.get("metadata",{}); facts=root.get("facts",{}); print(meta.get("challenge_type") or next((str(item).split(":",1)[1].strip() for section in facts.get("sections",[]) for item in section.get("items",[]) if str(item).lower().startswith("category:")), ""))' "$cognition_file" 2>/dev/null || true)"
+    fi
+    if [ -z "$category" ]; then
+        path_hint="$(printf '%s' "/${challenge_dir#${root_dir}/challenges/}/" | tr '[:upper:]' '[:lower:]')"
+        case "$path_hint" in
+            */pwn/*|*/binary/*|*/heap/*) category="pwn" ;;
+            */web/*) category="web" ;;
+            */crypto/*|*/cryptography/*|*/prng*|*/random*|*/rsa*|*/aes*) category="crypto" ;;
+            */misc/*|*/forensics/*|*/pcap/*) category="misc" ;;
+            */reverse/*|*/re/*|*/rev/*) category="reverse" ;;
+            */x402/*) category="x402" ;;
+        esac
     fi
 
     case "$(printf '%s' "${category:-}" | tr '[:upper:]' '[:lower:]')" in
@@ -490,7 +508,7 @@ infer_workflow_from_text() {
 
     case "$lower" in *"heap"*|*"libc"*|*"rop"*|*"ret2libc"*|*"canary"*|*"elf"*|*"format string"*|*"栈溢出"*|*"堆"*|*"格式化字符串"*) pwn_score=$((pwn_score + 1)) ;; esac
     case "$lower" in *"ssti"*|*"sqli"*|*"xss"*|*"ssrf"*|*"flask"*|*"php"*|*"jwt"*|*"upload"*|*"sql注入"*|*"文件上传"*) web_score=$((web_score + 1)) ;; esac
-    case "$lower" in *"rsa"*|*"aes"*|*"ecc"*|*"lattice"*|*"lcg"*|*"padding oracle"*|*"密码"*|*"加密"*) crypto_score=$((crypto_score + 1)) ;; esac
+    case "$lower" in *"rsa"*|*"aes"*|*"ecc"*|*"lattice"*|*"lcg"*|*"prng"*|*"random"*|*"nonce"*|*"padding oracle"*|*"随机数"*|*"密码"*|*"加密"*) crypto_score=$((crypto_score + 1)) ;; esac
     case "$lower" in *"ida"*|*"ghidra"*|*"apk"*|*"wasm"*|*"逆向"*|*"反编译"*) reverse_score=$((reverse_score + 1)) ;; esac
     case "$lower" in *"forensics"*|*"pcap"*|*"wireshark"*|*"zip"*|*"png"*|*"audio"*|*"取证"*|*"杂项"*) misc_score=$((misc_score + 1)) ;; esac
     case "$lower" in *"x402"*) x402_score=$((x402_score + 1)) ;; esac
@@ -532,6 +550,42 @@ join_append_lines_text() {
     done
 
     printf '%s\n' "$text"
+}
+
+extract_auto_solve_line() {
+    local output="$1"
+    local line
+
+    while IFS= read -r line; do
+        case "$line" in
+            ""|\`\`\`*|"# "*) continue ;;
+        esac
+        case "$line" in
+            *amds*"--mode solve"*--workflow*|*amds*"--mode=solve"*--workflow*)
+                printf '%s\n' "$line"
+                return 0
+                ;;
+        esac
+    done <<EOF
+$output
+EOF
+
+    return 1
+}
+
+extract_workflow_from_solve_line() {
+    local line="$1"
+    local workflow
+
+    workflow="$(printf '%s\n' "$line" | sed -n 's/.*--workflow[= ][ ]*\([A-Za-z0-9_-][A-Za-z0-9_-]*\).*/\1/p' | head -n 1)"
+    case "$workflow" in
+        pwn|web|crypto|misc|reverse|x402)
+            printf '%s\n' "$workflow"
+            return 0
+            ;;
+    esac
+
+    return 1
 }
 
 script_path="$(resolve_script_path "${BASH_SOURCE[0]}")"
@@ -784,67 +838,10 @@ if [ "$mode" = "auto" ]; then
     if [ -n "$target_input" ]; then
         append_lines+=("$target_input")
     fi
-    auto_template_path="$(resolve_template "auto")"
-    if [ "$workflow_explicit" = "1" ]; then
-        solve_workflow="$workflow"
-        solve_workflow_source="option"
-    else
-        append_workflow="$(infer_workflow_from_text "$(join_append_lines_text)")"
-        if [ -n "$append_workflow" ]; then
-            solve_workflow="$append_workflow"
-            solve_workflow_source="append"
-        else
-            solve_workflow="$(infer_workflow_from_challenge "$challenge_dir")"
-            solve_workflow_source="challenge"
-        fi
-    fi
-
-    solve_cmd=("$0" --mode solve --workflow "$solve_workflow" --runner "$runner" --policy "$policy")
-    if [ ${#append_lines[@]} -gt 0 ]; then
-        for line in "${append_lines[@]}"; do
-            solve_cmd+=(--append "$line")
-        done
-    fi
-    solve_cmd+=("$challenge_dir")
-    if [ ${#agent_args[@]} -gt 0 ]; then
-        solve_cmd+=("--" "${agent_args[@]}")
-    fi
-
-    if [ "$dry_run" = "1" ]; then
-        printf 'workspace: %s\n' "$challenge_dir"
-        printf 'mode: auto\n'
-        printf 'resolved_mode: solve\n'
-        printf 'runner: %s\n' "$runner"
-        printf 'policy: %s\n' "$policy"
-        printf 'workflow: %s\n' "$solve_workflow"
-        printf 'workflow_source: %s\n' "$solve_workflow_source"
-        printf 'auto_prompt: %s\n' "$auto_template_path"
-        printf 'challenge: %s\n' "$challenge_dir"
-        printf 'solve_command:'
-        for arg in "${solve_cmd[@]}"; do
-            printf ' %q' "$arg"
-        done
-        printf '\n'
-        exit 0
-    fi
-
-    if [ "$print_prompt" = "1" ]; then
-        challenge_prompt_path="$challenge_dir"
-        workspace_dir="$challenge_dir"
-        workflow="$solve_workflow"
-        prompt=""
-        join_prompt "$(render_template "$auto_template_path" "$challenge_prompt_path" "$target_url" "$session_prompt_value" "$session_prompt_path")"
-        if [ ${#append_lines[@]} -gt 0 ]; then
-            for line in "${append_lines[@]}"; do
-                append_prompt_line "$line"
-            done
-        fi
-        prepend_prompt_context
-        printf '%s\n' "$prompt"
-        exit 0
-    fi
-
-    exec "${solve_cmd[@]}"
+    challenge_prompt_path="$challenge_dir"
+    workspace_dir="$challenge_dir"
+    workflow="auto"
+    template_path="$(resolve_template "auto")"
 fi
 
 case "$mode" in
@@ -1072,7 +1069,7 @@ if [ "$dry_run" = "1" ]; then
     else
         printf 'guided: 0\n'
     fi
-    if [ "$mode" = "solve" ] || [ "$mode" = "audit" ] || [ "$mode" = "pre" ]; then
+    if [ "$mode" = "solve" ] || [ "$mode" = "audit" ] || [ "$mode" = "pre" ] || [ "$mode" = "auto" ]; then
         printf 'challenge: %s\n' "$challenge_prompt_path"
         if [ -n "$challenge_group" ]; then
             printf 'group: %s\n' "$challenge_group"
@@ -1093,6 +1090,36 @@ if [ "$dry_run" = "1" ]; then
     done
     printf '\n\nprompt:\n%s\n' "$prompt"
     exit 0
+fi
+
+if [ "$mode" = "auto" ]; then
+    if [ "$runner" = "claude" ]; then
+        auto_output="$(cd "$workspace_dir" && "${agent_cmd[@]}")"
+    else
+        auto_output="$("${agent_cmd[@]}")"
+    fi
+    printf '%s\n' "$auto_output"
+
+    auto_solve_line="$(extract_auto_solve_line "$auto_output")" || die "auto agent did not output a solve command on the first lines"
+    auto_workflow="$(extract_workflow_from_solve_line "$auto_solve_line")" || die "auto agent output did not contain a valid --workflow"
+
+    solve_cmd=("$0" --mode solve --workflow "$auto_workflow" --runner "$runner" --policy "$policy")
+    if [ ${#append_lines[@]} -gt 0 ]; then
+        for line in "${append_lines[@]}"; do
+            solve_cmd+=(--append "$line")
+        done
+    fi
+    solve_cmd+=("$challenge_dir")
+    if [ ${#agent_args[@]} -gt 0 ]; then
+        solve_cmd+=("--" "${agent_args[@]}")
+    fi
+
+    printf 'auto executing:'
+    for arg in "${solve_cmd[@]}"; do
+        printf ' %q' "$arg"
+    done
+    printf '\n'
+    exec "${solve_cmd[@]}"
 fi
 
 if [ "$runner" = "claude" ]; then

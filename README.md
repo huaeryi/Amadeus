@@ -38,7 +38,7 @@ bin/amds --workflow pwn defcon/baby_tcache
 cd challenges/defcon/baby_tcache && ../../../bin/amds auto
 ```
 
-`auto` 在题目目录内运行，会识别当前 challenge 并展开成对应的 `solve` 命令；如果题面或状态里有 category，会自动选择 `pwn` / `web` / `crypto` / `reverse` / `misc` / `x402` workflow，否则默认 `pwn`。
+`auto` 在题目目录内运行，会先让 agent 读取当前 challenge 和描述，输出一条补全参数的 `solve` 命令；`amds` 校验并提取其中的 workflow 后，会自动调用等价的 `solve` 命令。agent 会根据题面、目录、附件、状态和描述选择 `pwn` / `web` / `crypto` / `reverse` / `misc` / `x402` workflow。
 
 `auto` 也会参考位置参数描述或 `--append` 中的题型提示、命令片段：
 
