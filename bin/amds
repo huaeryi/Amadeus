@@ -257,6 +257,18 @@ has_top_level_file() {
     return 1
 }
 
+is_empty_dir() {
+    local dir="$1"
+    local item
+
+    for item in "${dir}"/* "${dir}"/.[!.]* "${dir}"/..?*; do
+        [ -e "$item" ] || continue
+        return 1
+    done
+
+    return 0
+}
+
 path_depth() {
     local path="$1"
     local old_ifs
@@ -302,7 +314,7 @@ resolve_current_challenge() {
 
     rel="${cwd#${challenges_root}/}"
     depth="$(path_depth "$rel")"
-    if has_top_level_file "$cwd"; then
+    if has_top_level_file "$cwd" || is_empty_dir "$cwd"; then
         printf '%s\n' "$cwd"
         return 0
     fi
