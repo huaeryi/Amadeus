@@ -302,11 +302,11 @@ resolve_current_challenge() {
 
     rel="${cwd#${challenges_root}/}"
     depth="$(path_depth "$rel")"
-    if [ "$depth" = "2" ]; then
+    if has_top_level_file "$cwd"; then
         printf '%s\n' "$cwd"
         return 0
     fi
-    if [ "$depth" = "1" ] && has_top_level_file "$cwd"; then
+    if [ "$depth" = "2" ]; then
         printf '%s\n' "$cwd"
         return 0
     fi
