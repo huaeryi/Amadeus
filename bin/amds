@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--policy strict|aggressive|none] [--group NAME] [--append TEXT] [--mode solve|guide|pre|audit|fetch|exec|learn|auto] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [<challenge|path|url>] [-- agent_args...]
+usage: amds [--print] [--dry-run] [--runner codex|claude|--codex|--claude] [--policy strict|aggressive|none] [--group NAME] [--append TEXT] [--sync] [--interval SECONDS] [--mode solve|guide|pre|audit|fetch|exec|learn|auto|view] [--workflow NAME|--pwn|--web|--crypto|--misc|--reverse|--x402] [<challenge|path|url|session>] [-- agent_args...]
 
 examples:
   amds --mode solve --workflow pwn newnote
@@ -32,6 +32,9 @@ examples:
   amds auto
   amds auto --dry-run
   amds auto "题型 web，远程地址是 http://example/"
+  amds view latest
+  amds view latest --sync
+  amds view 019eadbc-f487-7550-8bc0-f0c76d6d2d9e
   amds --workflow pwn newnote
   amds --web web_chal
   amds --crypto crypto_chal
@@ -63,6 +66,7 @@ behavior:
   - exec mode runs fetch first, then solve on the fetched challenge
   - learn mode runs the post-solve learning/reflection workflow for a challenge
   - auto mode is run inside a challenge directory, asks the agent to infer the completed solve command, then runs the equivalent solve command
+  - view mode converts a Codex JSONL session to HTML in the current directory and prints a file link; --sync refreshes about every 3 seconds by default
   - exec mode accepts --workflow to force the solve workflow after fetch
   - CTF category is selected by --workflow, defaulting to pwn for solve mode and x402 for audit mode
   - checkpoint rules are appended from prompts/cmds/checkpoint.md
@@ -410,6 +414,145 @@ shell_quote() {
     printf '%q' "$1"
 }
 
+resolve_codex_session_path() {
+    local query="$1"
+
+    python3 - "$query" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+query = sys.argv[1]
+codex_home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")).expanduser()
+sessions_dir = codex_home / "sessions"
+
+
+def fail(message: str) -> None:
+    print(f"amds: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def newest(paths):
+    return max(paths, key=lambda path: (path.stat().st_mtime, str(path)))
+
+
+def print_path(path: Path) -> None:
+    print(path.resolve())
+    sys.exit(0)
+
+
+path_like = "/" in query or query.endswith(".jsonl") or query in {".", ".."}
+if path_like:
+    candidate = Path(query).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    if candidate.is_file():
+        print_path(candidate)
+    fail(f"session JSONL not found: {query}")
+
+if not sessions_dir.is_dir():
+    fail(f"Codex sessions directory not found: {sessions_dir}")
+
+sessions = [path for path in sessions_dir.rglob("*.jsonl") if path.is_file()]
+if not sessions:
+    fail(f"no Codex session JSONL files found under {sessions_dir}")
+
+if query == "latest":
+    print_path(newest(sessions))
+
+exact = [path for path in sessions if path.name == query or path.stem == query]
+if exact:
+    print_path(newest(exact))
+
+suffix = [path for path in sessions if path.stem.endswith(query)]
+if len(suffix) == 1:
+    print_path(suffix[0])
+if len(suffix) > 1:
+    preview = "\n".join(f"  {path}" for path in sorted(suffix, key=lambda p: p.stat().st_mtime, reverse=True)[:8])
+    fail(f"ambiguous session id suffix: {query}\n{preview}")
+
+contains = [path for path in sessions if query in path.stem]
+if len(contains) == 1:
+    print_path(contains[0])
+if len(contains) > 1:
+    preview = "\n".join(f"  {path}" for path in sorted(contains, key=lambda p: p.stat().st_mtime, reverse=True)[:8])
+    fail(f"ambiguous session id fragment: {query}\n{preview}")
+
+fail(f"Codex session not found: {query}")
+PY
+}
+
+file_uri() {
+    python3 - "$1" <<'PY'
+from pathlib import Path
+import sys
+
+print(Path(sys.argv[1]).resolve().as_uri())
+PY
+}
+
+run_view_command() {
+    local session_query="$1"
+    local session_jsonl
+    local session_stem
+    local output_html
+    local output_link
+    local previous_output_html=""
+    local synced_at
+    local viewer_bin="${CODEX_TRANSCRIPT_VIEWER_BIN:-codex-transcript-viewer}"
+
+    command -v "$viewer_bin" >/dev/null 2>&1 || die "codex-transcript-viewer not found: $viewer_bin"
+
+    session_jsonl="$(resolve_codex_session_path "$session_query")"
+    session_stem="$(basename "$session_jsonl" .jsonl)"
+    output_html="${view_output_dir}/${session_stem}.html"
+
+    if [ "$dry_run" = "1" ] || [ "$print_prompt" = "1" ]; then
+        printf 'session: %s\n' "$session_query"
+        printf 'source: %s\n' "$session_jsonl"
+        printf 'output: %s\n' "$output_html"
+        printf 'sync: %s\n' "$view_sync"
+        if [ "$view_sync" = "1" ]; then
+            printf 'interval: %s\n' "$view_interval"
+        fi
+        printf 'command:'
+        printf ' %q' "$viewer_bin" "$session_jsonl" "$output_html"
+        printf '\n'
+        exit 0
+    fi
+
+    "$viewer_bin" "$session_jsonl" "$output_html"
+    output_link="$(file_uri "$output_html")"
+    printf 'session: %s\n' "$session_query"
+    printf 'source: %s\n' "$session_jsonl"
+    printf 'html: %s\n' "$output_html"
+    printf 'link: %s\n' "$output_link"
+
+    if [ "$view_sync" != "1" ]; then
+        return 0
+    fi
+
+    printf 'sync: enabled, interval: %ss, press Ctrl-C to stop\n' "$view_interval"
+    previous_output_html="$output_html"
+    while :; do
+        sleep "$view_interval"
+        session_jsonl="$(resolve_codex_session_path "$session_query")"
+        session_stem="$(basename "$session_jsonl" .jsonl)"
+        output_html="${view_output_dir}/${session_stem}.html"
+        if "$viewer_bin" "$session_jsonl" "$output_html" >/dev/null; then
+            synced_at="$(date '+%H:%M:%S')"
+            printf 'synced: %s -> %s\n' "$synced_at" "$output_html"
+            if [ "$output_html" != "$previous_output_html" ]; then
+                output_link="$(file_uri "$output_html")"
+                printf 'link: %s\n' "$output_link"
+                previous_output_html="$output_html"
+            fi
+        else
+            printf 'sync failed, will retry in %ss\n' "$view_interval" >&2
+        fi
+    done
+}
+
 find_fetched_challenge() {
     local source_url="$1"
     local file
@@ -678,6 +821,7 @@ script_dir="$(cd "$(dirname "$script_path")" && pwd)"
 root_dir="$(cd "${script_dir}/.." && pwd)"
 workspace_parent="$(cd "${root_dir}/.." && pwd)"
 root_name="$(basename "${root_dir}")"
+view_output_dir="$(pwd -P)"
 workspace_dir="$root_dir"
 platform="$(detect_platform)"
 prompt_root="$root_dir"
@@ -697,6 +841,9 @@ workflow_explicit=0
 challenge_group=""
 target_input=""
 session_input=""
+view_sync=0
+view_interval=3
+view_sync_option_used=0
 declare -a append_lines=()
 declare -a agent_args=()
 
@@ -764,11 +911,15 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --mode|-m)
-            [ $# -ge 2 ] || die "--mode requires solve, guide, pre, audit, fetch, exec, learn, or auto"
+            [ $# -ge 2 ] || die "--mode requires solve, guide, pre, audit, fetch, exec, learn, auto, or view"
             case "$2" in
                 solve|fetch|exec)
                     mode="$2"
                     display_mode="$2"
+                    ;;
+                view)
+                    mode="view"
+                    display_mode="view"
                     ;;
                 auto)
                     mode="auto"
@@ -816,6 +967,25 @@ while [ $# -gt 0 ]; do
             session_input="$2"
             shift 2
             ;;
+        --sync)
+            view_sync=1
+            view_sync_option_used=1
+            shift
+            ;;
+        --interval|--sync-interval)
+            [ $# -ge 2 ] || die "$1 requires seconds"
+            case "$2" in
+                ""|*[!0-9]*)
+                    die "$1 requires a positive integer number of seconds"
+                    ;;
+                0)
+                    die "$1 requires a positive integer number of seconds"
+                    ;;
+            esac
+            view_interval="$2"
+            view_sync_option_used=1
+            shift 2
+            ;;
         --)
             shift
             agent_args=("$@")
@@ -830,6 +1000,12 @@ while [ $# -gt 0 ]; do
                     solve|fetch|exec)
                         mode="$1"
                         display_mode="$1"
+                        shift
+                        continue
+                        ;;
+                    view)
+                        mode="view"
+                        display_mode="view"
                         shift
                         continue
                         ;;
@@ -895,9 +1071,22 @@ if [ "$mode" = "auto" ]; then
         die "--group is not supported with auto; run auto from the challenge directory instead"
     fi
     if [ -n "$session_input" ]; then
-        die "--session is only supported with learn mode"
+        die "--session is not supported with auto"
     fi
+elif [ "$mode" = "view" ]; then
+    if [ -n "$challenge_group" ]; then
+        die "--group is not supported with view"
+    fi
+    if [ -z "$target_input" ] && [ -n "$session_input" ]; then
+        target_input="$session_input"
+    elif [ -n "$target_input" ] && [ -n "$session_input" ] && [ "$target_input" != "$session_input" ]; then
+        die "pass the view session either as the target or --session, not both"
+    fi
+    [ -n "$target_input" ] || die "session is required for view"
 else
+    if [ "$view_sync_option_used" = "1" ]; then
+        die "--sync and --interval are only supported with view"
+    fi
     [ -n "$target_input" ] || die "target is required"
 fi
 
@@ -905,6 +1094,11 @@ case "$runner" in
     codex|claude) ;;
     *) die "unknown runner: $runner" ;;
 esac
+
+if [ "$mode" = "view" ]; then
+    run_view_command "$target_input"
+    exit 0
+fi
 
 group_option=""
 challenge_group_prefix=""

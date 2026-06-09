@@ -77,6 +77,9 @@ bin/amds guide pwn baby_tcache
 ```bash
 bin/amds learn baby_tcache
 bin/amds learn baby_tcache --session latest
+bin/amds view latest
+bin/amds view latest --sync
+bin/amds view 019eadbc-f487-7550-8bc0-f0c76d6d2d9e
 ```
 
 ## `amds` 用法
@@ -84,7 +87,7 @@ bin/amds learn baby_tcache --session latest
 基本格式：
 
 ```bash
-bin/amds [--runner codex|claude] [--policy strict|aggressive|none] [--mode solve|guide|pre|audit|fetch|exec|learn] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] <challenge|path|url> [-- agent_args...]
+bin/amds [--runner codex|claude] [--policy strict|aggressive|none] [--mode solve|guide|pre|audit|fetch|exec|learn|view] [--workflow pwn|web|crypto|reverse|misc|x402] [--session ID|latest] [--sync] [--interval SECONDS] <challenge|path|url|session> [-- agent_args...]
 ```
 
 常用模式：
@@ -99,6 +102,7 @@ bin/amds [--runner codex|claude] [--policy strict|aggressive|none] [--mode solve
 | `exec` | 先 fetch，再进入 solve。 |
 | `learn` | 解后或阶段性完成后的复盘学习。 |
 | `auto` | 在当前 challenge 目录中自动识别路径和 workflow，然后转入 `solve`。 |
+| `view` | 将 Codex JSONL session 转成当前目录中的 HTML，并输出 `file://` 链接；加 `--sync` 后默认每 3 秒刷新一次。 |
 
 题型快捷方式：
 
